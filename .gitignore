@@ -1,0 +1,45 @@
+# Build output
+/build/
+/build-*/
+/dist/
+/wheelhouse/
+*.egg-info/
+*.o
+*.a
+*.so
+*.dylib
+*.pyd
+# Note: *.obj is NOT ignored; OBJ is the input mesh format.
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Editors and tooling
+.vscode/
+.idea/
+.cache/
+compile_commands.json
+
+# LaTeX build files
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex.gz
+*.toc
+
+# Guardrails (see CLAUDE.md, Hard constraints): never commit Tachi's binary or
+# files it produced, and never commit IEEE or ASME paper PDFs. Built PDFs stay
+# out too. Openly licensed papers are allowed one by one below.
+*.exe
+*.dll
+*.pdf
+!/docs/papers/Demaine-Tachi-2017-Origamizer-SoCG.pdf
