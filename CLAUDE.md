@@ -50,8 +50,9 @@ Settled in session 1 (2026-11-23):
 - **Notes format** (2026-11-23): LaTeX for all long-form notes, notes on papers included, with the compiled PDF committed next to the source.
 
 Still open:
-- **M2 optimizer:** decide after the TVCG10 notes.
+- **M2 optimizer:** the TVCG10 notes (Implementation note "M2, solver choice") propose a linear or quadratic programming solver for the linear parts of both mapping steps instead of the paper's penalty descent. Decide at the start of M2.
 - **Viewer location:** path or URL of the user's Origami Simulator fork (needed by M3).
+- **Open questions in the TVCG10 notes:** seven, listed in their last section. Settle each before the milestone that needs it.
 
 ## Formats and tooling
 
@@ -65,19 +66,21 @@ Still open:
 
 - Sessions run in the user's Default cloud environment. It now has unrestricted network access (it was limited to package registries and GitHub when session 1 started), so the TVCG10 author PDF, www.tsg.ne.jp, and arXiv all download. Use `https://` URLs: plain HTTP fails because the container reaches the internet only through the HTTPS proxy.
 - The SoCG17 paper is in `docs/papers/`. The alphaXiv connector also serves arXiv papers.
-- Every session starts from a fresh container, and the C++ dependencies are not preinstalled. Install them with the apt command in Commands (about 10 s). A setup script could do this automatically, but it would need a separate cloud environment for this repo; none is set up.
+- Every session starts from a fresh container, and neither the C++ dependencies nor TeX are preinstalled. Install them with the apt commands in Commands (about 10 s and 50 s). A setup script could do this automatically, but it would need a separate cloud environment for this repo; none is set up.
+- GitHub refuses pushes from these sessions that add or change files under `.github/workflows/`, because the session token lacks the `workflow` scope. The user adds such files on github.com.
 - Sessions cannot create GitHub repositories or call account-wide GitHub APIs. Repository-scoped calls work once the repo is attached to the session.
 - Preinstalled: g++ 13.3, clang 18.1, CMake 3.28, Ninja 1.11, clang-format 18, Python 3.13, uv 0.11. Not preinstalled: CGAL, Boost, GMP, MPFR, Eigen, Catch2, any TeX engine.
 
 ## Planned layout
 
-Planned for the C++ stack; adjust during M0 if the tooling suggests otherwise.
+M0 created the build files, `check.hpp` with `src/check.cpp`, the bindings module, the package `__init__.py`, the first tests, and the TVCG10 notes. The rest is planned.
 
 ```
 .
 ├── CLAUDE.md
 ├── README.md
 ├── LICENSE
+├── .github/workflows/ci.yml # C++ tests under sanitizers, Python tests (added by the user)
 ├── CMakeLists.txt
 ├── pyproject.toml           # scikit-build-core + nanobind, managed with uv
 ├── include/origamizer/      # public C++ headers
@@ -107,7 +110,7 @@ Planned for the C++ stack; adjust during M0 if the tooling suggests otherwise.
 
 ## Milestones
 
-- [ ] **M0 Setup.** Tooling, license, README. Fetch the TVCG 2010 author PDF (link below) and write `docs/tvcg2010-notes.tex` (with its compiled PDF) before any core code. Cover: the tucking-molecule parameters (an angle θ(i,j) and a distance w(i,j) per pair of adjacent polygons, with θ(j,i) = -θ(i,j), as in Tachi's slides; confirm the exact definitions in the paper), the equality and inequality conditions for a valid crease pattern, the two-step mapping (a rotational step, then a translational step; confirm the exact formulation), and edge splitting. Progress: license and README done (2026-11-23); tooling and notes pending.
+- [x] **M0 Setup.** Tooling, license, README. Fetch the TVCG 2010 author PDF (link below) and write `docs/tvcg2010-notes.tex` (with its compiled PDF) before any core code. Cover: the tucking-molecule parameters (an angle θ(i,j) and a distance w(i,j) per pair of adjacent polygons, with θ(j,i) = -θ(i,j), as in Tachi's slides; confirm the exact definitions in the paper), the equality and inequality conditions for a valid crease pattern, the two-step mapping (a rotational step, then a translational step; confirm the exact formulation), and edge splitting. Done 2026-11-23: build skeleton, tests, and `docs/tvcg2010-notes.tex` with its PDF. The CI workflow is written but not on `main` yet, because sessions cannot push workflow files (see Environment notes).
 - [ ] **M1 Mesh.** OBJ loading, manifold and orientability checks, convex facets (split nonconvex faces), cutting closed or higher-genus meshes into a topological disk (one cut path per handle), choice of tuck side (inside for closed surfaces). Test meshes: tetrahedron, cube, octahedron, a saddle patch, a low-poly bunny.
 - [ ] **M2 Layout.** Two-step mapping with penalty-energy optimization in the translational step, non-overlap constraints, and edge splitting when infeasible. Optional term from OriStitch: a one-sided quadratic penalty enforcing a minimum separation between pieces, weighted by λ.
 - [ ] **M3 Crease pattern.** Edge-tucking and vertex-tucking molecules, mountain and valley assignment, FOLD and SVG export. Acceptance: the tetrahedron and the cube load in the viewer and fold toward the target with tucks inside.
@@ -191,12 +194,39 @@ Tools
 
 ## Commands
 
-Not set up yet. Once tooling exists, list the exact commands here: install, test, run an example, and export FOLD, SVG, and STL.
+Verified in a cloud session on 2026-11-23. Commands to run an example and to export FOLD, SVG, and STL come with M1 to M5.
 
-C++ dependencies (Ubuntu 24.04 cloud container, run as root; installs CGAL 5.6 with Boost, GMP, and MPFR, plus Eigen 3.4 and Catch2 3.4):
+System packages (Ubuntu 24.04 cloud container, run as root). C++ dependencies, about 10 s: CGAL 5.6 with Boost, GMP, and MPFR, plus Eigen 3.4 and Catch2 3.4.
 
 ```bash
 apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libcgal-dev libeigen3-dev catch2
+```
+
+LaTeX for the notes, about 50 s:
+
+```bash
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends texlive-latex-recommended texlive-latex-extra texlive-fonts-recommended texlive-pictures texlive-science lmodern latexmk
+```
+
+C++ tests in Debug with AddressSanitizer, UBSan, and warnings as errors (the CI configuration):
+
+```bash
+cmake -S . -B build/cpp-asan -G Ninja -DCMAKE_BUILD_TYPE=Debug -DORIGAMIZER_SANITIZE=ON -DCMAKE_COMPILE_WARNING_AS_ERROR=ON
+cmake --build build/cpp-asan
+ctest --test-dir build/cpp-asan --output-on-failure
+```
+
+Python package and its tests. `uv sync` compiles `origamizer._core` and rebuilds it when C++ sources or build files change:
+
+```bash
+uv sync
+uv run pytest
+```
+
+Notes. Rebuild the PDF after every change to a `.tex` file and commit both. The build is reproducible, so an unchanged source gives an identical PDF:
+
+```bash
+latexmk -pdf -cd docs/tvcg2010-notes.tex
 ```
 
 Git identity. A fresh cloud container starts with a Claude identity and commit signing on, so run these in the repo after every clone:
@@ -211,3 +241,4 @@ git config commit.gpgsign false
 
 - 2026-11-23: Project scoped in a claude.ai conversation. No code yet; repo not created. Next: settle the open decisions, then M0.
 - 2026-11-23 (session 1, Claude Code): Created the public repo with this file, README, GPL-3.0 license, `.gitignore` guardrails, and the SoCG17 paper. Settled: name, visibility, license, language (C++ core with Python bindings), CGAL allowed, commit authorship. Tachi not contacted yet. Later the same session: the user approved the C++ stack (see Decisions). The Default environment now has unrestricted network access, so the TVCG10 PDF is reachable. The C++ dependencies install with apt in about 10 s, and a CGAL 5.6 test program compiled and kept an OBJ pentagon as one face. Next: M0 (tooling, then the TVCG10 notes).
+- 2026-11-23 (session 1, continued): Decided direct pushes to `main` and LaTeX notes with committed PDFs. M0 done: build skeleton with always-on invariant checks (7 Catch2 tests passing under ASan and UBSan with g++ and clang++, 2 pytest tests), and the TVCG10 notes (11 pages, PDF committed; seven open questions). The CI workflow could not be pushed (no `workflow` scope); the user is to add `.github/workflows/ci.yml` on github.com. Next: M1 (mesh).

@@ -2,7 +2,7 @@
 
 An independent, open-source implementation of the Origamizer method: given a polyhedral surface, compute a crease pattern that folds one uncut sheet into it, with the excess material tucked away on one side. The first fabrication target is rigid face tiles 3D printed onto fabric.
 
-**Status:** planning. No code yet.
+**Status:** setup done (milestone M0): the build, test, and documentation tooling works, and [notes on the TVCG 2010 paper](docs/tvcg2010-notes.pdf) are written. No folding algorithms yet.
 
 ## Background and clean-room policy
 
@@ -18,7 +18,7 @@ Origamizer is Tomohiro Tachi's method and software. The software is closed sourc
 2. **Fabrication:** printable face tiles on fabric, beveled so the fabric tucks fit between neighbouring tiles.
 3. **Theory (stretch):** the provably correct SoCG 2017 construction.
 
-The implementation will be a C++ core (using CGAL) with Python bindings. Tooling is not set up yet; [CLAUDE.md](CLAUDE.md) holds the working plan.
+The implementation is a C++20 core (using CGAL and Eigen) with Python bindings (nanobind). Build and test commands are in [CLAUDE.md](CLAUDE.md#commands), which also holds the working plan.
 
 ## License
 
