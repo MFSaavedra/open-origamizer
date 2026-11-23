@@ -1,0 +1,222 @@
+% SPDX-License-Identifier: GPL-3.0-or-later
+% Copyright (C) 2026 Matías Saavedra
+%
+% Design notes for Open Origamizer, one section per milestone.
+% Build: latexmk -pdf -cd docs/notes.tex  (see CLAUDE.md, Commands)
+
+\documentclass[11pt]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+
+% Deterministic output (see tvcg2010-notes.tex).
+\pdfinfoomitdate=1
+\pdftrailerid{}
+\setlength{\emergencystretch}{2em}
+
+\hypersetup{pdftitle={Open Origamizer: design notes}, pdfauthor={Open Origamizer project}}
+
+\theoremstyle{definition}
+\newtheorem{claim}{Claim}
+\newtheorem*{remark}{Remark}
+
+\title{Open Origamizer: design notes}
+\author{Open Origamizer project}
+\date{23 November 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Running notes on design decisions that go beyond the papers, one section per
+milestone. Notes on the papers themselves are in \texttt{tvcg2010-notes}. This
+version covers M1: preparing the input mesh and cutting it into a disk.
+\end{abstract}
+
+\section{M1: preparing and cutting the mesh}
+
+Code: \texttt{include/origamizer/mesh.hpp} and \texttt{cut.hpp}; tests in
+\texttt{tests/cpp} and \texttt{tests/python}.
+
+\subsection{Conventions}
+
+\begin{itemize}[nosep]
+  \item Faces are listed counterclockwise around their normal, and the normal
+    points to the \emph{clean side}; tucks go to the other side.
+  \item A closed mesh is oriented outward, so its tucks go inside: if its
+    signed volume is negative, all faces are reversed and the caller is told.
+    A mesh with boundary keeps its orientation, which is the user's choice of
+    clean side (TVCG10 Fig.~20).
+  \item Preparing a mesh keeps the vertex numbering of the input. Face
+    numbering changes only where nonconvex faces are split, and
+    \texttt{face\_origin} maps every face back to its input face.
+\end{itemize}
+
+\subsection{Checks, and what is not repaired}
+
+Before a mesh is built, the polygon soup must have no degenerate faces (fewer
+than three vertices or a repeated vertex), no duplicate faces (the same vertex
+set, in either orientation), no unused vertices, no distinct vertices at
+exactly the same position, no edge shared by more than two faces, and no
+vertex whose faces form more than one fan. It must be one component, joined
+through edges, and its faces must be consistently oriented. Every violation is
+reported, with indices; nothing is fixed silently. The one exception is
+reorientation of an orientable soup, which happens only on request.
+
+Each face must also be planar (no vertex farther than $10^{-6}$ face diameters
+from the best-fit plane), have positive area (more than $10^{-12}$ times the
+squared diameter), and be simple in its plane. Nonplanar faces are an error
+rather than being triangulated: the choice of diagonal changes the surface, so
+it belongs to the user.
+
+The coincident-vertex check is disabled only when building a cut surface,
+where the copies of a split vertex share its position.
+
+\subsection{Convex facets}
+
+The method needs convex facets: a concave corner violates the necessary
+conditions T13 and T14 of TVCG10 (Sec.~5.2), and SoCG17 assumes convex facets.
+TVCG10 triangulates every polygon, because extra edge-tucking molecules make
+the conditions easier to meet. We split only nonconvex faces, into the fewest
+convex pieces using diagonals only (CGAL's \texttt{optimal\_convex\_partition\_2},
+Greene's dynamic program~\cite{greene83}), because every new diagonal becomes a
+tuck across the face, and the fabrication track wants one rigid tile per facet.
+Straight ($180^\circ$) corners are allowed. The pieces must cover the face
+exactly; this is checked through their areas.
+
+\subsection{Cutting into a disk}
+
+The molecule mesh lives on a disk, so a surface that is closed, has handles, or
+has several boundary loops is first cut along mesh edges (TVCG10 Sec.~2.2.1
+and~8.1). After any cut the result is checked to be a disk: connected, one
+boundary loop, Euler characteristic~1.
+
+\paragraph{Algorithm.}
+\begin{enumerate}[nosep]
+  \item Flood the faces breadth first from a root face (TVCG10 Sec.~8.1). The
+    edges the flooding crosses form a spanning tree $T^*$ of the dual graph and
+    stay glued.
+  \item Let $C$ be the interior edges not in $T^*$, and $G = C \cup \partial S$.
+  \item While some vertex has exactly one edge of $G$, glue that edge back
+    (remove it from $G$).
+  \item If $S$ is closed and nothing is left, $S$ has genus~0: cut one shortest
+    edge path between its two most curved vertices (largest angle defect, then
+    largest distance, then smallest index), extended to two edges if it has
+    only one.
+  \item Split every vertex into one copy per fan of faces between cut edges, and
+    rebuild the mesh.
+\end{enumerate}
+
+\begin{claim}
+Cutting $S$ along all of $C$ gives a disk.
+\end{claim}
+\begin{proof}[Sketch]
+In the cut surface, faces are glued only along the edges of $T^*$, a tree. Gluing
+polygons one at a time along a single edge of the disk built so far keeps a
+disk.
+\end{proof}
+
+\begin{claim}
+Step~3 keeps a disk, and never removes a boundary edge.
+\end{claim}
+\begin{proof}[Sketch]
+A vertex of the original boundary has two boundary edges in $G$, which are
+never removed, so its degree stays at least~2. A vertex $v$ with one edge
+$e = vw$ of $G$ is therefore interior, and in the cut surface it is the tip of
+a slit: the two copies of $e$ are consecutive boundary edges meeting at $v$.
+Gluing them closes the slit from its tip, which keeps a disk as long as the
+boundary has more than these two edges. The only case where it does not is a
+closed surface cut along a single edge; that case is caught by step~4 and by
+the check below.
+\end{proof}
+
+\paragraph{What remains.} If every vertex of $S$ touches $G$, the cyclomatic
+number of $G$ is $|E(G)| - |V(G)| + 1 = (|C| + E_\partial) - V + 1$. With
+$|C| = E - E_\partial - (F - 1)$ this is $2 - \chi = 2g + b$ for a connected
+orientable surface of genus~$g$ with $b$ boundary loops, and pruning does not
+change it. So the pruned graph consists of the $b$ boundary loops, $2g$ loops
+around the handles, and paths joining them. This corrects the earlier plan of
+``one cut path per handle'': a torus needs two loops, not one.
+
+\paragraph{One-edge slits.} If a cut edge has neither end split, by another cut
+edge or by the boundary, its two copies join the same two vertices, so
+rebuilding the mesh glues them back. This is why step~4 extends a one-edge path
+(every two vertices of a tetrahedron are adjacent), and why
+\texttt{cut\_along} rejects such an edge with an explicit message.
+
+\paragraph{Splitting vertices.} A \emph{corner} is a halfedge $h$ with a face:
+the corner of that face at the target of~$h$. For every glued interior edge,
+the corners on its two sides at each of its endpoints are joined in a
+union-find structure. Each class is one copy of a vertex, and copies of the
+same vertex are numbered consecutively.
+
+\subsection{Results on the examples}
+
+\begin{table}[ht]
+\centering
+\small
+\begin{tabular}{@{}lrrrrrrr@{}}
+\toprule
+Mesh & $V$ & $E$ & $F$ & $\chi$ & $b$ & $g$ & cut edges \\
+\midrule
+tetrahedron & 4 & 6 & 4 & 2 & 0 & 0 & 2 \\
+cube & 8 & 12 & 6 & 2 & 0 & 0 & 3 \\
+octahedron & 6 & 12 & 8 & 2 & 0 & 0 & 2 \\
+L prism (caps split) & 12 & 20 & 10 & 2 & 0 & 0 & 3 \\
+torus & 96 & 192 & 96 & 0 & 0 & 1 & 20 \\
+open cylinder & 24 & 36 & 12 & 0 & 2 & 0 & 1 \\
+saddle & 49 & 120 & 72 & 1 & 1 & 0 & 0 \\
+Stanford bunny (372 triangles) & 195 & 570 & 372 & $-3$ & 5 & 0 & 45 \\
+\bottomrule
+\end{tabular}
+\caption{Topology and automatic cuts. The torus is cut along one loop around the
+hole (12 edges) and one around the tube (8 edges). The bunny's five boundary
+loops are the holes of the scan.}
+\end{table}
+
+\begin{remark}[Open for M2]
+The cut is only guaranteed to be valid; its quality matters a lot. TVCG10
+reports a bunny efficiency of 0.007 with its automatic cut and 0.172 after
+moving the boundary behind the ears, and notes that a boundary through sharp
+points helps (Sec.~10); it also smooths ``jags'' out of the cut (Sec.~8.1).
+Our paths between boundary loops follow the flooding tree rather than
+shortest paths, which is why the bunny needs 45 cut edges, and the root face
+is fixed at~0. Once M2 can measure a layout, compare cut strategies on these
+meshes; for scanned meshes, also consider filling small holes.
+\end{remark}
+
+\subsection{Test data}
+
+\texttt{examples/meshes/generate.py} writes the seven example meshes and checks
+their orientation. \texttt{fetch\_bunny.py} downloads the Stanford bunny,
+drops the vertices that no face uses, and simplifies it to at most 374
+triangles with CGAL edge collapses (the size used in SoCG17 Fig.~1). The coarser
+reconstructions in the Stanford archive are not 2-manifolds (duplicate faces,
+edges shared by three faces), so the full one is simplified instead. The bunny
+is not committed: the Stanford terms allow research use and free
+redistribution but not commercial use without permission, which does not fit a
+GPL repository.
+
+\begin{thebibliography}{9}
+\bibitem{tvcg10}
+T.~Tachi. Origamizing polyhedral surfaces. \emph{IEEE Transactions on
+Visualization and Computer Graphics} 16(2):298-311, 2010.
+
+\bibitem{socg17}
+E.~D. Demaine and T.~Tachi. Origamizer: A practical algorithm for folding any
+polyhedron. \emph{SoCG 2017}, LIPIcs, pp.~34:1-34:15.
+
+\bibitem{greene83}
+D.~H. Greene. The decomposition of polygons into convex parts. In
+F.~P. Preparata, editor, \emph{Computational Geometry}, Advances in Computing
+Research~1, pp.~235-259. JAI Press, 1983.
+\end{thebibliography}
+
+\end{document}

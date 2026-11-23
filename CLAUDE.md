@@ -47,12 +47,15 @@ Settled in session 1 (2026-11-23):
   - Invariants: always-on checks that throw `origamizer::InvariantError`, which nanobind turns into a Python exception. Never plain `assert`, which release builds (wheels included) compile out.
 
 - **Git workflow** (2026-11-23): direct pushes to `main` for now.
-- **Notes format** (2026-11-23): LaTeX for all long-form notes, notes on papers included, with the compiled PDF committed next to the source.
+- **Notes format** (2026-11-23): LaTeX for all long-form notes, notes on papers included, with the compiled PDF committed next to the source. Design decisions beyond the papers go in `docs/notes.tex`, one section per milestone.
+- **Clean side** (2026-11-23): face normals point to the clean side and tucks go behind. Closed meshes are oriented outward, so tucks go inside; meshes with boundary keep their orientation (TVCG10 Fig. 20).
+- **Test data** (2026-11-23): the Stanford bunny is generated locally by `examples/meshes/fetch_bunny.py` and never committed, because the Stanford terms forbid commercial use without permission.
 
 Still open:
 - **M2 optimizer:** the TVCG10 notes (Implementation note "M2, solver choice") propose a linear or quadratic programming solver for the linear parts of both mapping steps instead of the paper's penalty descent. Decide at the start of M2.
 - **Viewer location:** path or URL of the user's Origami Simulator fork (needed by M3).
 - **Open questions in the TVCG10 notes:** seven, listed in their last section. Settle each before the milestone that needs it.
+- **Cut quality:** the automatic cut is only guaranteed valid. Compare cut strategies once M2 can measure layouts (see the M1 remark in `docs/notes.tex`).
 
 ## Formats and tooling
 
@@ -60,7 +63,7 @@ Still open:
 - Interchange: FOLD (https://github.com/edemaine/fold). Export a `creasePattern` frame (2D `vertices_coords`, `edges_vertices`, `edges_assignment`, `edges_foldAngle`, `faces_vertices`) and optionally a `foldedForm` frame with 3D coordinates. Checked against `doc/spec.md` on 2026-11-23: the `edges_assignment` letters are B (border), M (mountain), V (valley), F (flat), U (unassigned), C (cut or slit), and J (join); `edges_foldAngle` is in degrees in [-180, 180], positive for valley, negative for mountain, and zero for flat, unassigned, and border edges.
 - SVG export compatible with Origami Simulator's importer (check its documentation for the color conventions).
 - Fabrication: STL for the tiles plus a sidecar file with the fabric pause height.
-- Viewer: the user's fork of Origami Simulator (upstream https://github.com/amandaghassaei/OrigamiSimulator), which imports FOLD and SVG. It does not detect self-intersection, so treat it as a visual sanity check, not a validator.
+- Viewer: the user's fork of Origami Simulator (upstream https://github.com/amandaghassaei/OrigamiSimulator), which imports FOLD and SVG. It does not detect self-intersection, so treat it as a visual sanity check, not a validator. Plan for M3 (agreed 2026-11-23): export FOLD with each crease's target fold angle taken from our folded state; read the simulator's FOLD importer source (MIT) first to confirm the fields it reads and how it handles polygon faces; then drive it headlessly with Playwright (Chromium is preinstalled in cloud sessions) to screenshot fold stages. Before M3, render the mesh, cut, and layout with matplotlib.
 
 ## Environment notes (Claude Code cloud sessions, as of 2026-11-23)
 
@@ -73,7 +76,7 @@ Still open:
 
 ## Planned layout
 
-M0 created the build files, `check.hpp` with `src/check.cpp`, the bindings module, the package `__init__.py`, the first tests, and the TVCG10 notes. The rest is planned.
+M0 and M1 created the files marked as existing below; the rest is planned.
 
 ```
 .
@@ -84,15 +87,17 @@ M0 created the build files, `check.hpp` with `src/check.cpp`, the bindings modul
 ├── CMakeLists.txt
 ├── pyproject.toml           # scikit-build-core + nanobind, managed with uv
 ├── include/origamizer/      # public C++ headers
-│   ├── check.hpp            # always-on invariant checks (throw InvariantError)
-│   ├── mesh.hpp             # OBJ input, Surface_mesh wrapper, checks, disk cutting
+│   ├── check.hpp            # (exists) always-on invariant checks (throw InvariantError)
+│   ├── mesh.hpp             # (exists) OBJ input, checks, convex splitting, topology, clean side
+│   ├── cut.hpp              # (exists) cutting into a topological disk
 │   ├── tucking.hpp          # tucking-molecule parameters and validity conditions (TVCG10)
 │   ├── layout.hpp           # two-step mapping, penalty optimization, edge splitting
 │   ├── creases.hpp          # edge and vertex tucking molecules, mountain/valley assignment
 │   ├── metrics.hpp          # efficiency, minimum features, crease counts, layer estimates
 │   └── socg17/              # stretch: tuck proxy, squashing, streams, sites, Voronoi folding
 ├── src/                     # C++ sources matching the headers
-│   └── bindings/            # nanobind module origamizer._core
+│   ├── detail/              # (exists) private helpers (union-find)
+│   └── bindings/            # (exists) nanobind module origamizer._core
 ├── python/origamizer/       # Python package
 │   ├── io_fold.py           # FOLD export and import
 │   ├── io_svg.py            # SVG export for Origami Simulator
@@ -101,17 +106,19 @@ M0 created the build files, `check.hpp` with `src/check.cpp`, the bindings modul
 ├── tests/
 │   ├── cpp/                 # Catch2 unit tests
 │   └── python/              # pytest: bindings and end-to-end runs
-├── examples/meshes/         # tetrahedron, cube, octahedron, saddle, low-poly bunny
+├── examples/
+│   ├── meshes/              # (exists) generate.py and its OBJ files; fetch_bunny.py (bunny.obj ignored)
+│   └── plot_cut.py          # (exists) renders each example with its cut
 └── docs/
     ├── papers/              # openly licensed papers only
-    ├── tvcg2010-notes.tex   # and its compiled .pdf
-    └── notes.tex            # and its compiled .pdf
+    ├── tvcg2010-notes.tex   # (exists) and its compiled .pdf
+    └── notes.tex            # (exists) design notes, one section per milestone, and its .pdf
 ```
 
 ## Milestones
 
 - [x] **M0 Setup.** Tooling, license, README. Fetch the TVCG 2010 author PDF (link below) and write `docs/tvcg2010-notes.tex` (with its compiled PDF) before any core code. Cover: the tucking-molecule parameters (an angle θ(i,j) and a distance w(i,j) per pair of adjacent polygons, with θ(j,i) = -θ(i,j), as in Tachi's slides; confirm the exact definitions in the paper), the equality and inequality conditions for a valid crease pattern, the two-step mapping (a rotational step, then a translational step; confirm the exact formulation), and edge splitting. Done 2026-11-23: build skeleton, tests, and `docs/tvcg2010-notes.tex` with its PDF. CI runs on GitHub Actions; its first run passed the same day (C++ tests under ASan and UBSan with g++ and clang++, Python tests).
-- [ ] **M1 Mesh.** OBJ loading, manifold and orientability checks, convex facets (split nonconvex faces), cutting closed or higher-genus meshes into a topological disk (one cut path per handle), choice of tuck side (inside for closed surfaces). Test meshes: tetrahedron, cube, octahedron, a saddle patch, a low-poly bunny.
+- [x] **M1 Mesh.** OBJ loading, manifold and orientability checks, convex facets (split nonconvex faces), cutting closed or higher-genus meshes into a topological disk (a cut graph with 2g loops for genus g, plus paths joining the boundary loops; "one cut path per handle" was wrong), choice of tuck side (inside for closed surfaces). Test meshes: tetrahedron, cube, octahedron, a saddle patch, a low-poly bunny. Done 2026-11-23: `mesh.hpp` and `cut.hpp` with C++ and Python tests, example meshes plus a torus, an open cylinder, and an L prism, the bunny via `fetch_bunny.py`, renders via `plot_cut.py`, and design notes in `docs/notes.tex`. Cut quality is deferred to M2.
 - [ ] **M2 Layout.** Two-step mapping with penalty-energy optimization in the translational step, non-overlap constraints, and edge splitting when infeasible. Optional term from OriStitch: a one-sided quadratic penalty enforcing a minimum separation between pieces, weighted by λ.
 - [ ] **M3 Crease pattern.** Edge-tucking and vertex-tucking molecules, mountain and valley assignment, FOLD and SVG export. Acceptance: the tetrahedron and the cube load in the viewer and fold toward the target with tucks inside.
 - [ ] **M4 Metrics.** Area efficiency (surface area over paper area), crease count, smallest crease segment and smallest gap, estimated maximum layers per tuck. Reference point: the 374-triangle Stanford bunny folds from paper at 22.3% area efficiency, about 2:1 linear scale (SoCG17 Fig. 1).
@@ -227,6 +234,15 @@ Notes. Rebuild the PDF after every change to a `.tex` file and commit both. The 
 
 ```bash
 latexmk -pdf -cd docs/tvcg2010-notes.tex
+latexmk -pdf -cd docs/notes.tex
+```
+
+Example meshes: regenerate the committed ones, fetch and simplify the bunny (needs network; output not committed), and render every mesh with its cut into `build/plots/`:
+
+```bash
+python3 examples/meshes/generate.py
+uv run python examples/meshes/fetch_bunny.py
+uv run --group plot python examples/plot_cut.py
 ```
 
 CI status from a session (repository-scoped GitHub calls work; check that the test counts in the log are nonzero, not just that the run is green):
@@ -250,3 +266,4 @@ git config commit.gpgsign false
 - 2026-11-23 (session 1, Claude Code): Created the public repo with this file, README, GPL-3.0 license, `.gitignore` guardrails, and the SoCG17 paper. Settled: name, visibility, license, language (C++ core with Python bindings), CGAL allowed, commit authorship. Tachi not contacted yet. Later the same session: the user approved the C++ stack (see Decisions). The Default environment now has unrestricted network access, so the TVCG10 PDF is reachable. The C++ dependencies install with apt in about 10 s, and a CGAL 5.6 test program compiled and kept an OBJ pentagon as one face. Next: M0 (tooling, then the TVCG10 notes).
 - 2026-11-23 (session 1, continued): Decided direct pushes to `main` and LaTeX notes with committed PDFs. M0 done: build skeleton with always-on invariant checks (7 Catch2 tests passing under ASan and UBSan with g++ and clang++, 2 pytest tests), and the TVCG10 notes (11 pages, PDF committed; seven open questions). The CI workflow could not be pushed to `.github/workflows/` (no `workflow` scope), so it is parked at `ci/ci.yml` for the user to move on github.com. Next: M1 (mesh).
 - 2026-11-23 (session 1, continued): The user moved the workflow to `.github/workflows/ci.yml`. First CI run (45225589519) passed all three jobs: 7/7 Catch2 tests under ASan and UBSan with g++ and with clang++, 2/2 pytest. Only warnings: GitHub's Node.js 20 deprecation notice for `actions/checkout@v4` and `astral-sh/setup-uv@v6`; v7 of both runs on Node 24 and needs no new inputs, and the user decides whether to edit the workflow on github.com. Next: M1 (mesh).
+- 2026-11-23 (session 1, continued): M1 done. Mesh input, checks, convex splitting, topology, clean side, and disk cutting in C++ with Python bindings: 48 Catch2 tests (ASan and UBSan) and 24 pytest tests, the bunny test only when `bunny.obj` exists. The invariants caught two bugs during development, both fixed: one-edge seed slits were glued back, and cut copies of a vertex tripped the coincident-vertex check. The Stanford archive's coarse bunnies are not manifold, so the full one is simplified to 372 triangles; it has 5 scan holes and needs 45 cut edges. Origami Simulator plan recorded under Formats and tooling. Next: M2 (layout), starting with the M2 optimizer decision and TVCG10 notes Open questions 1 and 5.
