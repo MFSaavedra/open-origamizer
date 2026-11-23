@@ -17,14 +17,14 @@ Tracks:
 ## Hard constraints
 
 - Clean-room only. Implement from published papers. Never decompile, disassemble, or reverse-engineer Tachi's binary, and never commit it or files it produced. If the user runs it locally for comparison, that stays outside the repo and follows its license.
-- Do not commit PDFs of IEEE or ASME papers (TVCG 2010, Yang and You 2024); link them instead. The SoCG 2017 paper is CC-BY 3.0 and is included in `docs/papers/` with attribution. `.gitignore` ignores `*.pdf` except for the files listed there.
+- Do not commit PDFs of IEEE or ASME papers (TVCG 2010, Yang and You 2024); link them instead. The SoCG 2017 paper is CC-BY 3.0 and is included in `docs/papers/` with attribution. `.gitignore` ignores `*.pdf` except for the files listed there: that paper and the compiled PDFs of our own LaTeX notes.
 - License: GPL-3.0-or-later (decided 2026-11-23, because CGAL, which is mostly GPL-3.0+, may be used freely). Start every source file with an `SPDX-License-Identifier: GPL-3.0-or-later` line and the line `Copyright (C) 2026 Matías Saavedra` (the year when the file is created). FOLD and Origami Simulator are MIT (checked 2026-11-23), so their code may be borrowed if their copyright notices are kept.
 - Commits carry no Claude attribution. This is the user's standing instruction and overrides default attribution settings: author every commit as `Matías Saavedra <50891732+MFSaavedra@users.noreply.github.com>` with commit signing off (see Commands), and add no `Co-Authored-By` or `Claude-Session` lines.
 
 ## Working style
 
 - Prose in docs, code comments, commit messages, and chat: precise and direct. Never use em-dashes.
-- Long-form write-ups (derivations, design notes, anything paper-like) go in LaTeX under `docs/`. Markdown is fine for the README, this file, and short notes.
+- Long-form write-ups (derivations, design notes, notes on papers, anything paper-like) go in LaTeX under `docs/`. Commit the compiled PDF next to its `.tex` source, rebuild it whenever the source changes, and list each such PDF as an exception in `.gitignore`. Markdown is fine for the README, this file, and short notes.
 - Priority order: correct geometric formulation, then tests, then fabrication features. Keep applied tangents short.
 - Every algorithmic function cites its source in its doc comment or docstring (for example "TVCG10 Sec. 4" or "SoCG17 Sec. 5").
 - Prefer explicit invariants and assertions over silent repairs. Every geometric routine gets a unit test.
@@ -37,7 +37,6 @@ Settled in session 1 (2026-11-23):
 - **Language:** a C++ core with Python bindings (chosen over a pure-Python reference implementation).
 - **C++ dependencies:** CGAL may be used freely; its GPL-3.0+ packages are compatible with the project license.
 - **Contact with Tachi** (tachi at idea.c.u-tokyo.ac.jp): not contacted yet. Revisit before announcing the project anywhere, and record the outcome here. If he offers private source under restrictive terms, whoever reads it must not write this implementation.
-
 - **C++ stack** (approved 2026-11-23):
   - C++20, built with CMake and Ninja.
   - CGAL 5.6 or newer for geometry and the mesh. `CGAL::Surface_mesh` keeps polygon faces (tested: an OBJ pentagon loads as one face of degree 5). Use `Exact_predicates_inexact_constructions_kernel` by default, and exact constructions only where an algorithm needs them (likely SoCG17).
@@ -47,11 +46,12 @@ Settled in session 1 (2026-11-23):
   - Split: algorithms in C++ (mesh, tucking, layout, creases, metrics); Python for the FOLD, SVG, and STL writers, fabrication, and the CLI.
   - Invariants: always-on checks that throw `origamizer::InvariantError`, which nanobind turns into a Python exception. Never plain `assert`, which release builds (wheels included) compile out.
 
+- **Git workflow** (2026-11-23): direct pushes to `main` for now.
+- **Notes format** (2026-11-23): LaTeX for all long-form notes, notes on papers included, with the compiled PDF committed next to the source.
+
 Still open:
 - **M2 optimizer:** decide after the TVCG10 notes.
 - **Viewer location:** path or URL of the user's Origami Simulator fork (needed by M3).
-- **Git workflow:** proposed a branch and pull request per milestone; not confirmed yet.
-- **Notes format:** proposed Markdown for notes on papers (GitHub renders the math) and LaTeX for original derivations; not confirmed yet.
 
 ## Formats and tooling
 
@@ -101,13 +101,13 @@ Planned for the C++ stack; adjust during M0 if the tooling suggests otherwise.
 ├── examples/meshes/         # tetrahedron, cube, octahedron, saddle, low-poly bunny
 └── docs/
     ├── papers/              # openly licensed papers only
-    ├── tvcg2010-notes.md
-    └── notes.tex
+    ├── tvcg2010-notes.tex   # and its compiled .pdf
+    └── notes.tex            # and its compiled .pdf
 ```
 
 ## Milestones
 
-- [ ] **M0 Setup.** Tooling, license, README. Fetch the TVCG 2010 author PDF (link below) and write `docs/tvcg2010-notes.md` before any core code. Cover: the tucking-molecule parameters (an angle θ(i,j) and a distance w(i,j) per pair of adjacent polygons, with θ(j,i) = -θ(i,j), as in Tachi's slides; confirm the exact definitions in the paper), the equality and inequality conditions for a valid crease pattern, the two-step mapping (a rotational step, then a translational step; confirm the exact formulation), and edge splitting. Progress: license and README done (2026-11-23); tooling and notes pending.
+- [ ] **M0 Setup.** Tooling, license, README. Fetch the TVCG 2010 author PDF (link below) and write `docs/tvcg2010-notes.tex` (with its compiled PDF) before any core code. Cover: the tucking-molecule parameters (an angle θ(i,j) and a distance w(i,j) per pair of adjacent polygons, with θ(j,i) = -θ(i,j), as in Tachi's slides; confirm the exact definitions in the paper), the equality and inequality conditions for a valid crease pattern, the two-step mapping (a rotational step, then a translational step; confirm the exact formulation), and edge splitting. Progress: license and README done (2026-11-23); tooling and notes pending.
 - [ ] **M1 Mesh.** OBJ loading, manifold and orientability checks, convex facets (split nonconvex faces), cutting closed or higher-genus meshes into a topological disk (one cut path per handle), choice of tuck side (inside for closed surfaces). Test meshes: tetrahedron, cube, octahedron, a saddle patch, a low-poly bunny.
 - [ ] **M2 Layout.** Two-step mapping with penalty-energy optimization in the translational step, non-overlap constraints, and edge splitting when infeasible. Optional term from OriStitch: a one-sided quadratic penalty enforcing a minimum separation between pieces, weighted by λ.
 - [ ] **M3 Crease pattern.** Edge-tucking and vertex-tucking molecules, mountain and valley assignment, FOLD and SVG export. Acceptance: the tetrahedron and the cube load in the viewer and fold toward the target with tucks inside.

@@ -43,3 +43,6 @@ compile_commands.json
 *.dll
 *.pdf
 !/docs/papers/Demaine-Tachi-2017-Origamizer-SoCG.pdf
+# Compiled PDFs of our own LaTeX notes (committed next to their sources).
+!/docs/tvcg2010-notes.pdf
+!/docs/notes.pdf
