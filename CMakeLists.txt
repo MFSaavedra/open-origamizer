@@ -35,6 +35,8 @@ set(ORIGAMIZER_WARNINGS -Wall -Wextra -Wpedantic)
 # Core library: every algorithm lives here (CLAUDE.md, C++ stack).
 add_library(origamizer_core STATIC
   src/check.cpp
+  src/cut.cpp
+  src/mesh.cpp
 )
 target_include_directories(origamizer_core PUBLIC ${PROJECT_SOURCE_DIR}/include)
 target_link_libraries(origamizer_core PUBLIC CGAL::CGAL Eigen3::Eigen)
@@ -47,9 +49,15 @@ if(ORIGAMIZER_BUILD_TESTS)
   add_executable(origamizer_tests
     tests/cpp/test_check.cpp
     tests/cpp/test_check_ndebug.cpp
+    tests/cpp/test_cut.cpp
+    tests/cpp/test_face_shape.cpp
+    tests/cpp/test_obj.cpp
+    tests/cpp/test_soup.cpp
     tests/cpp/test_toolchain.cpp
+    tests/cpp/test_topology.cpp
   )
   target_link_libraries(origamizer_tests PRIVATE origamizer_core Catch2::Catch2WithMain)
+  target_compile_definitions(origamizer_tests PRIVATE ORIGAMIZER_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
   target_compile_options(origamizer_tests PRIVATE ${ORIGAMIZER_WARNINGS})
   include(Catch)
   catch_discover_tests(origamizer_tests)
