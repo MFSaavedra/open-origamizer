@@ -9,5 +9,5 @@ Only openly licensed papers are stored here. IEEE and ASME papers are linked, ne
 ## Linked only
 
 - Tachi. Origamizing Polyhedral Surfaces. IEEE TVCG 16(2):298-311, 2010. [Author PDF](https://origami.c.u-tokyo.ac.jp/~tachi/cg/OrigamizingPolyhedralSurfaces_tachi_IEEETVCG.pdf)
-- Tachi. 3D Origami Design based on Tucking Molecule. Origami4, pp. 259-272, 2009. [PDF](http://www.tsg.ne.jp/TT/cg/3DOrigamiDesign_tachi_4OSME.pdf)
+- Tachi. 3D Origami Design based on Tucking Molecule. Origami4, pp. 259-272, 2009. [PDF](https://www.tsg.ne.jp/TT/cg/3DOrigamiDesign_tachi_4OSME.pdf)
 - Yang, You. Folding Miura-Ori of Uniform Thickness With One Degree-of-Freedom. ASME JMR 16(11):111004, 2024. https://doi.org/10.1115/1.4065004

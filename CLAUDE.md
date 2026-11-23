@@ -26,7 +26,7 @@ Tracks:
 - Prose in docs, code comments, commit messages, and chat: precise and direct. Never use em-dashes.
 - Long-form write-ups (derivations, design notes, anything paper-like) go in LaTeX under `docs/`. Markdown is fine for the README, this file, and short notes.
 - Priority order: correct geometric formulation, then tests, then fabrication features. Keep applied tangents short.
-- Every algorithmic function cites its source in the docstring (for example "TVCG10 Sec. 4" or "SoCG17 Sec. 5").
+- Every algorithmic function cites its source in its doc comment or docstring (for example "TVCG10 Sec. 4" or "SoCG17 Sec. 5").
 - Prefer explicit invariants and assertions over silent repairs. Every geometric routine gets a unit test.
 
 ## Decisions
@@ -38,10 +38,20 @@ Settled in session 1 (2026-11-23):
 - **C++ dependencies:** CGAL may be used freely; its GPL-3.0+ packages are compatible with the project license.
 - **Contact with Tachi** (tachi at idea.c.u-tokyo.ac.jp): not contacted yet. Revisit before announcing the project anywhere, and record the outcome here. If he offers private source under restrictive terms, whoever reads it must not write this implementation.
 
+- **C++ stack** (approved 2026-11-23):
+  - C++20, built with CMake and Ninja.
+  - CGAL 5.6 or newer for geometry and the mesh. `CGAL::Surface_mesh` keeps polygon faces (tested: an OBJ pentagon loads as one face of degree 5). Use `Exact_predicates_inexact_constructions_kernel` by default, and exact constructions only where an algorithm needs them (likely SoCG17).
+  - Eigen for linear algebra.
+  - nanobind bindings, built by scikit-build-core so that `uv sync` compiles the extension module `origamizer._core`.
+  - Catch2 v3 unit tests for every geometric routine, run under ASan and UBSan in CI; pytest for the bindings and end-to-end runs (OBJ in, FOLD out).
+  - Split: algorithms in C++ (mesh, tucking, layout, creases, metrics); Python for the FOLD, SVG, and STL writers, fabrication, and the CLI.
+  - Invariants: always-on checks that throw `origamizer::InvariantError`, which nanobind turns into a Python exception. Never plain `assert`, which release builds (wheels included) compile out.
+
 Still open:
-- **C++ stack details:** build system and packaging, bindings library, test frameworks, the split between C++ and Python, and the optimizer for M2 (decide that one after the TVCG10 notes).
+- **M2 optimizer:** decide after the TVCG10 notes.
 - **Viewer location:** path or URL of the user's Origami Simulator fork (needed by M3).
-- **Paper access in cloud sessions:** see Environment notes.
+- **Git workflow:** proposed a branch and pull request per milestone; not confirmed yet.
+- **Notes format:** proposed Markdown for notes on papers (GitHub renders the math) and LaTeX for original derivations; not confirmed yet.
 
 ## Formats and tooling
 
@@ -53,34 +63,44 @@ Still open:
 
 ## Environment notes (Claude Code cloud sessions, as of 2026-11-23)
 
-- The Default cloud environment reaches package registries and GitHub only. Paper hosts are blocked: origami.c.u-tokyo.ac.jp, tsg.ne.jp, www.tsg.ne.jp, doi.org, drops.dagstuhl.de, arxiv.org, scripts.mit.edu.
-- The SoCG17 paper is in `docs/papers/`. arXiv papers (OriStitch, Ku and Demaine) can be read through the alphaXiv connector. The TVCG10 author PDF needs an upload or an environment that allows origami.c.u-tokyo.ac.jp.
+- Sessions run in the user's Default cloud environment. It now has unrestricted network access (it was limited to package registries and GitHub when session 1 started), so the TVCG10 author PDF, www.tsg.ne.jp, and arXiv all download. Use `https://` URLs: plain HTTP fails because the container reaches the internet only through the HTTPS proxy.
+- The SoCG17 paper is in `docs/papers/`. The alphaXiv connector also serves arXiv papers.
+- Every session starts from a fresh container, and the C++ dependencies are not preinstalled. Install them with the apt command in Commands (about 10 s). A setup script could do this automatically, but it would need a separate cloud environment for this repo; none is set up.
 - Sessions cannot create GitHub repositories or call account-wide GitHub APIs. Repository-scoped calls work once the repo is attached to the session.
-- Installed: g++ 13.3, clang 18.1, CMake 3.28, Ninja 1.11, clang-format 18, Python 3.13, uv 0.11. Not installed: CGAL, Boost, GMP, MPFR, Eigen, any TeX engine.
+- Preinstalled: g++ 13.3, clang 18.1, CMake 3.28, Ninja 1.11, clang-format 18, Python 3.13, uv 0.11. Not preinstalled: CGAL, Boost, GMP, MPFR, Eigen, Catch2, any TeX engine.
 
 ## Planned layout
 
-Written for the earlier pure-Python plan. Revise it for the C++ core once the stack details are settled.
+Planned for the C++ stack; adjust during M0 if the tooling suggests otherwise.
 
 ```
 .
 ├── CLAUDE.md
 ├── README.md
 ├── LICENSE
-├── pyproject.toml
-├── src/origamizer/
-│   ├── mesh.py              # OBJ I/O, half-edge structure, checks, disk cutting
-│   ├── tucking.py           # tucking-molecule parameters and validity conditions (TVCG10)
-│   ├── layout.py            # two-step mapping, penalty optimization, edge splitting
-│   ├── creases.py           # edge and vertex tucking molecules, mountain/valley assignment
+├── CMakeLists.txt
+├── pyproject.toml           # scikit-build-core + nanobind, managed with uv
+├── include/origamizer/      # public C++ headers
+│   ├── check.hpp            # always-on invariant checks (throw InvariantError)
+│   ├── mesh.hpp             # OBJ input, Surface_mesh wrapper, checks, disk cutting
+│   ├── tucking.hpp          # tucking-molecule parameters and validity conditions (TVCG10)
+│   ├── layout.hpp           # two-step mapping, penalty optimization, edge splitting
+│   ├── creases.hpp          # edge and vertex tucking molecules, mountain/valley assignment
+│   ├── metrics.hpp          # efficiency, minimum features, crease counts, layer estimates
+│   └── socg17/              # stretch: tuck proxy, squashing, streams, sites, Voronoi folding
+├── src/                     # C++ sources matching the headers
+│   └── bindings/            # nanobind module origamizer._core
+├── python/origamizer/       # Python package
 │   ├── io_fold.py           # FOLD export and import
 │   ├── io_svg.py            # SVG export for Origami Simulator
-│   ├── metrics.py           # efficiency, minimum features, crease counts, layer estimates
 │   ├── fabrication/tiles.py # beveled face tiles to STL, pause height
-│   └── socg17/              # stretch: tuck proxy, squashing, streams, sites, Voronoi folding
+│   └── cli.py
 ├── tests/
+│   ├── cpp/                 # Catch2 unit tests
+│   └── python/              # pytest: bindings and end-to-end runs
 ├── examples/meshes/         # tetrahedron, cube, octahedron, saddle, low-poly bunny
 └── docs/
+    ├── papers/              # openly licensed papers only
     ├── tvcg2010-notes.md
     └── notes.tex
 ```
@@ -149,7 +169,7 @@ Lessons from OriStitch (Origamizer-based, fabric with heat-shrink embroidery)
 Core
 - Demaine, Tachi. Origamizer: A Practical Algorithm for Folding Any Polyhedron. SoCG 2017. https://doi.org/10.4230/LIPIcs.SoCG.2017.34 (CC-BY 3.0; copy in `docs/papers/`)
 - Tachi. Origamizing Polyhedral Surfaces. IEEE TVCG 16(2):298-311, 2010. Author PDF: https://origami.c.u-tokyo.ac.jp/~tachi/cg/OrigamizingPolyhedralSurfaces_tachi_IEEETVCG.pdf
-- Tachi. 3D Origami Design based on Tucking Molecule. Origami4, pp. 259-272, 2009. http://www.tsg.ne.jp/TT/cg/3DOrigamiDesign_tachi_4OSME.pdf
+- Tachi. 3D Origami Design based on Tucking Molecule. Origami4, pp. 259-272, 2009. https://www.tsg.ne.jp/TT/cg/3DOrigamiDesign_tachi_4OSME.pdf
 - Tachi's software page and license: https://tsg.ne.jp/TT/software/
 
 Fabrication
@@ -173,6 +193,12 @@ Tools
 
 Not set up yet. Once tooling exists, list the exact commands here: install, test, run an example, and export FOLD, SVG, and STL.
 
+C++ dependencies (Ubuntu 24.04 cloud container, run as root; installs CGAL 5.6 with Boost, GMP, and MPFR, plus Eigen 3.4 and Catch2 3.4):
+
+```bash
+apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libcgal-dev libeigen3-dev catch2
+```
+
 Git identity. A fresh cloud container starts with a Claude identity and commit signing on, so run these in the repo after every clone:
 
 ```bash
@@ -184,4 +210,4 @@ git config commit.gpgsign false
 ## Status log
 
 - 2026-11-23: Project scoped in a claude.ai conversation. No code yet; repo not created. Next: settle the open decisions, then M0.
-- 2026-11-23 (session 1, Claude Code): Created the public repo with this file, README, GPL-3.0 license, `.gitignore` guardrails, and the SoCG17 paper. Settled: name, visibility, license, language (C++ core with Python bindings), CGAL allowed, commit authorship. Tachi not contacted yet. Next: settle the C++ stack details, then M0.
+- 2026-11-23 (session 1, Claude Code): Created the public repo with this file, README, GPL-3.0 license, `.gitignore` guardrails, and the SoCG17 paper. Settled: name, visibility, license, language (C++ core with Python bindings), CGAL allowed, commit authorship. Tachi not contacted yet. Later the same session: the user approved the C++ stack (see Decisions). The Default environment now has unrestricted network access, so the TVCG10 PDF is reachable. The C++ dependencies install with apt in about 10 s, and a CGAL 5.6 test program compiled and kept an OBJ pentagon as one face. Next: M0 (tooling, then the TVCG10 notes).
