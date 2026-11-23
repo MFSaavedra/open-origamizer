@@ -1,0 +1,45 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Matías Saavedra
+
+[build-system]
+requires = ["scikit-build-core>=0.11", "nanobind>=2.4"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "open-origamizer"
+version = "0.0.1"
+description = "Clean-room implementation of the Origamizer method: fold one uncut sheet into a polyhedral surface by tucking."
+readme = "README.md"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
+authors = [{ name = "Matías Saavedra" }]
+requires-python = ">=3.11"
+dependencies = []
+
+[project.urls]
+Repository = "https://github.com/MFSaavedra/open-origamizer"
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.scikit-build]
+minimum-version = "build-system.requires"
+build-dir = "build/{wheel_tag}"
+wheel.packages = ["python/origamizer"]
+cmake.build-type = "Release"
+
+[tool.scikit-build.cmake.define]
+ORIGAMIZER_BUILD_PYTHON = "ON"
+ORIGAMIZER_BUILD_TESTS = "OFF"
+
+[tool.uv]
+# Rebuild the extension when the C++ sources or the build files change.
+cache-keys = [
+  { file = "pyproject.toml" },
+  { file = "CMakeLists.txt" },
+  { file = "include/**/*.hpp" },
+  { file = "src/**/*.cpp" },
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/python"]
