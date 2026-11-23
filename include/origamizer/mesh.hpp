@@ -167,6 +167,11 @@ struct Topology {
 /// Topology of an oriented mesh.
 Topology topology(const SurfaceMesh& mesh);
 
+/// Every boundary loop as a cycle of vertex indices. Each loop follows the
+/// border halfedges, which run against the orientation of the faces; loops are
+/// ordered by their first border halfedge.
+std::vector<std::vector<std::size_t>> boundary_loops(const SurfaceMesh& mesh);
+
 /// Sum of the face corner angles at vertex v.
 double corner_angle_sum(const SurfaceMesh& mesh, SurfaceMesh::Vertex_index v);
 

@@ -665,6 +665,24 @@ Topology topology(const SurfaceMesh& mesh) {
   return t;
 }
 
+std::vector<std::vector<std::size_t>> boundary_loops(const SurfaceMesh& mesh) {
+  ORIGAMIZER_CHECK(!mesh.has_garbage(), "the mesh has removed elements; collect garbage first");
+  std::vector<std::vector<std::size_t>> loops;
+  std::vector<char> seen(mesh.number_of_halfedges(), 0);
+  for (const auto h : mesh.halfedges()) {
+    if (!mesh.is_border(h) || seen[static_cast<std::size_t>(h)]) continue;
+    std::vector<std::size_t> loop;
+    auto g = h;
+    do {
+      seen[static_cast<std::size_t>(g)] = 1;
+      loop.push_back(static_cast<std::size_t>(mesh.source(g)));
+      g = mesh.next(g);
+    } while (g != h);
+    loops.push_back(std::move(loop));
+  }
+  return loops;
+}
+
 double corner_angle_sum(const SurfaceMesh& mesh, SurfaceMesh::Vertex_index v) {
   const Point3& p = mesh.point(v);
   double sum = 0;

@@ -21,6 +21,7 @@ Repository = "https://github.com/MFSaavedra/open-origamizer"
 
 [dependency-groups]
 dev = ["pytest>=8"]
+plot = ["matplotlib>=3.8"]
 
 [tool.scikit-build]
 minimum-version = "build-system.requires"

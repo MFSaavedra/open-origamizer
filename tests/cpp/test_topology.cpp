@@ -83,6 +83,26 @@ TEST_CASE("the saddle has negative curvature inside and boundary turning on its 
   REQUIRE(saddle.is_border(corner));
 }
 
+TEST_CASE("boundary loops are vertex cycles along the border") {
+  REQUIRE(origamizer::boundary_loops(example("cube")).empty());
+  const auto saddle = origamizer::boundary_loops(example("saddle"));
+  REQUIRE(saddle.size() == 1);
+  REQUIRE(saddle[0].size() == 24);  // 6 x 4 boundary edges of the 7 x 7 grid
+  const auto cylinder = origamizer::boundary_loops(example("cylinder"));
+  REQUIRE(cylinder.size() == 2);
+  for (const auto& loop : cylinder) REQUIRE(loop.size() == 12);
+  // Consecutive loop vertices are joined by border edges.
+  const auto mesh = example("saddle");
+  for (std::size_t k = 0; k < saddle[0].size(); ++k) {
+    const auto a = SurfaceMesh::Vertex_index(static_cast<SurfaceMesh::size_type>(saddle[0][k]));
+    const auto b = SurfaceMesh::Vertex_index(
+        static_cast<SurfaceMesh::size_type>(saddle[0][(k + 1) % saddle[0].size()]));
+    const auto [h, found] = CGAL::halfedge(a, b, mesh);
+    REQUIRE(found);
+    REQUIRE(mesh.is_border(h));
+  }
+}
+
 TEST_CASE("signed volumes and the clean side") {
   REQUIRE(origamizer::signed_volume(example("cube")) == Approx(1.0));
   REQUIRE(origamizer::signed_volume(example("tetrahedron")) == Approx(8.0 / 3.0));
