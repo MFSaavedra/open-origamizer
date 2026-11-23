@@ -80,7 +80,7 @@ M0 created the build files, `check.hpp` with `src/check.cpp`, the bindings modul
 ├── CLAUDE.md
 ├── README.md
 ├── LICENSE
-├── .github/workflows/ci.yml # C++ tests under sanitizers, Python tests (parked at ci/ci.yml until moved)
+├── .github/workflows/ci.yml # CI: C++ tests under sanitizers (g++, clang++), Python tests
 ├── CMakeLists.txt
 ├── pyproject.toml           # scikit-build-core + nanobind, managed with uv
 ├── include/origamizer/      # public C++ headers
@@ -110,7 +110,7 @@ M0 created the build files, `check.hpp` with `src/check.cpp`, the bindings modul
 
 ## Milestones
 
-- [x] **M0 Setup.** Tooling, license, README. Fetch the TVCG 2010 author PDF (link below) and write `docs/tvcg2010-notes.tex` (with its compiled PDF) before any core code. Cover: the tucking-molecule parameters (an angle θ(i,j) and a distance w(i,j) per pair of adjacent polygons, with θ(j,i) = -θ(i,j), as in Tachi's slides; confirm the exact definitions in the paper), the equality and inequality conditions for a valid crease pattern, the two-step mapping (a rotational step, then a translational step; confirm the exact formulation), and edge splitting. Done 2026-11-23: build skeleton, tests, and `docs/tvcg2010-notes.tex` with its PDF. The CI workflow is committed at `ci/ci.yml`, because sessions cannot push workflow files (see Environment notes). It does not run until the user moves it to `.github/workflows/ci.yml` on github.com; after that, delete this note.
+- [x] **M0 Setup.** Tooling, license, README. Fetch the TVCG 2010 author PDF (link below) and write `docs/tvcg2010-notes.tex` (with its compiled PDF) before any core code. Cover: the tucking-molecule parameters (an angle θ(i,j) and a distance w(i,j) per pair of adjacent polygons, with θ(j,i) = -θ(i,j), as in Tachi's slides; confirm the exact definitions in the paper), the equality and inequality conditions for a valid crease pattern, the two-step mapping (a rotational step, then a translational step; confirm the exact formulation), and edge splitting. Done 2026-11-23: build skeleton, tests, and `docs/tvcg2010-notes.tex` with its PDF. CI runs on GitHub Actions; its first run passed the same day (C++ tests under ASan and UBSan with g++ and clang++, Python tests).
 - [ ] **M1 Mesh.** OBJ loading, manifold and orientability checks, convex facets (split nonconvex faces), cutting closed or higher-genus meshes into a topological disk (one cut path per handle), choice of tuck side (inside for closed surfaces). Test meshes: tetrahedron, cube, octahedron, a saddle patch, a low-poly bunny.
 - [ ] **M2 Layout.** Two-step mapping with penalty-energy optimization in the translational step, non-overlap constraints, and edge splitting when infeasible. Optional term from OriStitch: a one-sided quadratic penalty enforcing a minimum separation between pieces, weighted by λ.
 - [ ] **M3 Crease pattern.** Edge-tucking and vertex-tucking molecules, mountain and valley assignment, FOLD and SVG export. Acceptance: the tetrahedron and the cube load in the viewer and fold toward the target with tucks inside.
@@ -229,6 +229,13 @@ Notes. Rebuild the PDF after every change to a `.tex` file and commit both. The 
 latexmk -pdf -cd docs/tvcg2010-notes.tex
 ```
 
+CI status from a session (repository-scoped GitHub calls work; check that the test counts in the log are nonzero, not just that the run is green):
+
+```bash
+gh run list -R MFSaavedra/open-origamizer --limit 5
+gh run view <run-id> -R MFSaavedra/open-origamizer --log
+```
+
 Git identity. A fresh cloud container starts with a Claude identity and commit signing on, so run these in the repo after every clone:
 
 ```bash
@@ -242,3 +249,4 @@ git config commit.gpgsign false
 - 2026-11-23: Project scoped in a claude.ai conversation. No code yet; repo not created. Next: settle the open decisions, then M0.
 - 2026-11-23 (session 1, Claude Code): Created the public repo with this file, README, GPL-3.0 license, `.gitignore` guardrails, and the SoCG17 paper. Settled: name, visibility, license, language (C++ core with Python bindings), CGAL allowed, commit authorship. Tachi not contacted yet. Later the same session: the user approved the C++ stack (see Decisions). The Default environment now has unrestricted network access, so the TVCG10 PDF is reachable. The C++ dependencies install with apt in about 10 s, and a CGAL 5.6 test program compiled and kept an OBJ pentagon as one face. Next: M0 (tooling, then the TVCG10 notes).
 - 2026-11-23 (session 1, continued): Decided direct pushes to `main` and LaTeX notes with committed PDFs. M0 done: build skeleton with always-on invariant checks (7 Catch2 tests passing under ASan and UBSan with g++ and clang++, 2 pytest tests), and the TVCG10 notes (11 pages, PDF committed; seven open questions). The CI workflow could not be pushed to `.github/workflows/` (no `workflow` scope), so it is parked at `ci/ci.yml` for the user to move on github.com. Next: M1 (mesh).
+- 2026-11-23 (session 1, continued): The user moved the workflow to `.github/workflows/ci.yml`. First CI run (45225589519) passed all three jobs: 7/7 Catch2 tests under ASan and UBSan with g++ and with clang++, 2/2 pytest. Only warnings: GitHub's Node.js 20 deprecation notice for `actions/checkout@v4` and `astral-sh/setup-uv@v6`; v7 of both runs on Node 24 and needs no new inputs, and the user decides whether to edit the workflow on github.com. Next: M1 (mesh).
