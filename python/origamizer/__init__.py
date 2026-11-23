@@ -28,6 +28,7 @@ from ._core import (
     parse_obj,
     prepare_mesh,
     read_obj,
+    simplify_triangle_mesh,
     to_soup,
 )
 
@@ -57,5 +58,6 @@ __all__ = [
     "parse_obj",
     "prepare_mesh",
     "read_obj",
+    "simplify_triangle_mesh",
     "to_soup",
 ]

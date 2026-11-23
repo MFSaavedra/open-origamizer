@@ -7,6 +7,8 @@
 #include <CGAL/Polygon_2_algorithms.h>
 #include <CGAL/Polygon_mesh_processing/orientation.h>
 #include <CGAL/Polygon_mesh_processing/polygon_soup_to_polygon_mesh.h>
+#include <CGAL/Surface_mesh_simplification/Policies/Edge_collapse/Face_count_stop_predicate.h>
+#include <CGAL/Surface_mesh_simplification/edge_collapse.h>
 #include <CGAL/partition_2.h>
 #include <CGAL/property_map.h>
 
@@ -727,6 +729,18 @@ bool orient_clean_side_out(SurfaceMesh& mesh) {
   if (volume > 0) return false;
   CGAL::Polygon_mesh_processing::reverse_face_orientations(mesh);
   return true;
+}
+
+SurfaceMesh simplify_triangle_mesh(const SurfaceMesh& mesh, std::size_t target_faces) {
+  ORIGAMIZER_CHECK(CGAL::is_triangle_mesh(mesh), "simplify_triangle_mesh needs a triangle mesh");
+  ORIGAMIZER_CHECK(target_faces > 0, "the target face count must be positive");
+  SurfaceMesh simplified = mesh;
+  namespace SMS = CGAL::Surface_mesh_simplification;
+  const SMS::Face_count_stop_predicate<SurfaceMesh> stop(target_faces);
+  SMS::edge_collapse(simplified, stop);
+  simplified.collect_garbage();
+  ORIGAMIZER_CHECK(simplified.is_valid(false), "simplification left an invalid mesh");
+  return simplified;
 }
 
 // Pipeline -------------------------------------------------------------------

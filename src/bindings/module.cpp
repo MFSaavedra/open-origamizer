@@ -175,6 +175,9 @@ NB_MODULE(_core, m) {
 
   m.def("build_mesh", &og::build_mesh, "soup"_a, "allow_coincident_vertices"_a = false);
   m.def("to_soup", &og::to_soup, "mesh"_a);
+  m.def("simplify_triangle_mesh", &og::simplify_triangle_mesh, "mesh"_a, "target_faces"_a,
+        "Simplify a triangle mesh by edge collapses to at most target_faces faces, keeping its "
+        "topology (CGAL, Lindstrom-Turk cost and placement).");
 
   nb::class_<og::PreparedMesh>(m, "PreparedMesh", "A checked mesh and what preparing it changed.")
       .def_ro("mesh", &og::PreparedMesh::mesh)

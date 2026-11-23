@@ -118,6 +118,17 @@ TEST_CASE("signed volumes and the clean side") {
   REQUIRE_FALSE(origamizer::orient_clean_side_out(saddle));
 }
 
+TEST_CASE("simplify_triangle_mesh reduces faces and keeps the topology") {
+  const auto saddle = example("saddle");
+  const auto simplified = origamizer::simplify_triangle_mesh(saddle, 30);
+  REQUIRE(simplified.number_of_faces() <= 30);
+  REQUIRE(simplified.number_of_faces() > 0);
+  REQUIRE(topology(simplified).is_disk());
+  REQUIRE(origamizer::check_soup(origamizer::to_soup(simplified)).ok());
+  REQUIRE_THROWS_WITH(origamizer::simplify_triangle_mesh(example("cube"), 4),
+                      ContainsSubstring("needs a triangle mesh"));
+}
+
 TEST_CASE("prepare_mesh reports inconsistent orientation unless asked to fix it") {
   auto soup = origamizer::read_obj(test::example_path("cube"));
   std::reverse(soup.faces[2].begin(), soup.faces[2].end());

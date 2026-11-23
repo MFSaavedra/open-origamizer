@@ -28,7 +28,11 @@ import origamizer as og  # noqa: E402
 ROOT = Path(__file__).resolve().parents[1]
 MESHES = ROOT / "examples" / "meshes"
 EXAMPLES = ["tetrahedron", "cube", "octahedron", "l_prism", "torus", "cylinder", "saddle"]
-VIEWS = {"saddle": (35, -60), "torus": (45, -50), "cylinder": (25, -60)}  # elevation, azimuth
+if (MESHES / "bunny.obj").exists():  # generated locally by fetch_bunny.py
+    EXAMPLES.append("bunny")
+# Elevation, azimuth, and vertical axis (the Stanford bunny is stored with y up).
+VIEWS = {"saddle": (35, -60, "z"), "torus": (45, -50, "z"), "cylinder": (25, -60, "z"),
+         "bunny": (15, 25, "y")}
 
 
 def draw(ax, name):
@@ -55,7 +59,8 @@ def draw(ax, name):
     ax.set_ylim(centers[1] - half, centers[1] + half)
     ax.set_zlim(centers[2] - half, centers[2] + half)
     ax.set_box_aspect((1, 1, 1))
-    ax.view_init(*VIEWS.get(name, (22, -55)))
+    elevation, azimuth, vertical = VIEWS.get(name, (22, -55, "z"))
+    ax.view_init(elevation, azimuth, vertical_axis=vertical)
     ax.set_axis_off()
     t = mesh.topology()
     ax.set_title(f"{name}\nchi {t.euler_characteristic}, genus {t.genus}, "
@@ -77,7 +82,7 @@ def main():
     fig = plt.figure(figsize=(16, 8.5))
     for k, name in enumerate(EXAMPLES):
         draw(fig.add_subplot(2, 4, k + 1, projection="3d"), name)
-    fig.text(0.82, 0.25, "red: cut edges\nblue: original boundary", fontsize=11, ha="center")
+    fig.suptitle("Automatic cuts (red) and original boundaries (blue)", fontsize=13)
     fig.savefig(args.out / "m1-cuts.png", dpi=110, bbox_inches="tight")
     plt.close(fig)
     print(f"wrote {len(EXAMPLES) + 1} images to {args.out}")

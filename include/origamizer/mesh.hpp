@@ -192,6 +192,14 @@ double signed_volume(const SurfaceMesh& mesh);
 /// faces. Throws InvariantError for a closed mesh that encloses no volume.
 bool orient_clean_side_out(SurfaceMesh& mesh);
 
+/// Simplifies a triangle mesh by edge collapses until it has at most
+/// `target_faces` faces, using CGAL's Lindstrom-Turk cost and placement
+/// (CGAL::Surface_mesh_simplification::edge_collapse), which preserves the
+/// topology. Dense meshes must be simplified before folding (TVCG10 Sec. 10).
+/// The result is renumbered. Throws InvariantError unless every face is a
+/// triangle.
+SurfaceMesh simplify_triangle_mesh(const SurfaceMesh& mesh, std::size_t target_faces);
+
 // Pipeline -------------------------------------------------------------------
 
 struct PrepareOptions {
