@@ -95,13 +95,14 @@ M0 and M1 created the files marked as existing below; the rest is planned.
 │   ├── check.hpp            # (exists) always-on invariant checks (throw InvariantError)
 │   ├── mesh.hpp             # (exists) OBJ input, checks, convex splitting, topology, clean side
 │   ├── cut.hpp              # (exists) cutting into a topological disk
-│   ├── tucking.hpp          # tucking-molecule parameters and validity conditions (TVCG10)
-│   ├── layout.hpp           # two-step mapping, penalty optimization, edge splitting
+│   ├── molecules.hpp        # (exists) molecule mesh: edge, digon, and boundary molecules, vertex stars
+│   ├── layout.hpp           # (exists: rotation step) two-step mapping, edge splitting
+│   ├── tucking.hpp          # tuck proxy and 3D conditions (TVCG10 Sec. 4.3)
 │   ├── creases.hpp          # edge and vertex tucking molecules, mountain/valley assignment
 │   ├── metrics.hpp          # efficiency, minimum features, crease counts, layer estimates
 │   └── socg17/              # stretch: tuck proxy, squashing, streams, sites, Voronoi folding
 ├── src/                     # C++ sources matching the headers
-│   ├── detail/              # (exists) private helpers (union-find)
+│   ├── detail/              # (exists) private helpers: union-find, the HiGHS wrapper
 │   └── bindings/            # (exists) nanobind module origamizer._core
 ├── python/origamizer/       # Python package
 │   ├── io_fold.py           # FOLD export and import
@@ -272,3 +273,4 @@ git config commit.gpgsign false
 - 2026-11-23 (session 1, continued): Decided direct pushes to `main` and LaTeX notes with committed PDFs. M0 done: build skeleton with always-on invariant checks (7 Catch2 tests passing under ASan and UBSan with g++ and clang++, 2 pytest tests), and the TVCG10 notes (11 pages, PDF committed; seven open questions). The CI workflow could not be pushed to `.github/workflows/` (no `workflow` scope), so it is parked at `ci/ci.yml` for the user to move on github.com. Next: M1 (mesh).
 - 2026-11-23 (session 1, continued): The user moved the workflow to `.github/workflows/ci.yml`. First CI run (45225589519) passed all three jobs: 7/7 Catch2 tests under ASan and UBSan with g++ and with clang++, 2/2 pytest. Only warnings: GitHub's Node.js 20 deprecation notice for `actions/checkout@v4` and `astral-sh/setup-uv@v6`; v7 of both runs on Node 24 and needs no new inputs, and the user decides whether to edit the workflow on github.com. Next: M1 (mesh).
 - 2026-11-23 (session 1, continued): M1 done. Mesh input, checks, convex splitting, topology, clean side, and disk cutting in C++ with Python bindings: 48 Catch2 tests (ASan and UBSan) and 24 pytest tests, the bunny test only when `bunny.obj` exists. The invariants caught two bugs during development, both fixed: one-edge seed slits were glued back, and cut copies of a vertex tripped the coincident-vertex check. The Stanford archive's coarse bunnies are not manifold, so the full one is simplified to 372 triangles; it has 5 scan holes and needs 45 cut edges. Origami Simulator plan recorded under Formats and tooling. Next: M2 (layout), starting with the M2 optimizer decision and TVCG10 notes Open questions 1 and 5.
+- 2026-11-24 (session 2): M2 started. Benchmarked CGAL's exact LP/QP solver against HiGHS on synthetic layout-sized problems (CGAL over 10 minutes at 300 variables, HiGHS 0.01 s); the user chose HiGHS v1.15.1 (MIT), now fetched and built by CMake behind a private wrapper. Decided to implement both translation objectives (minimum width; the paper's penalty) and accepted the proposed defaults; the boundary-digon default was then changed with evidence (T1 with T8 needs at least three molecules per vertex; see Decisions). Done: molecule mesh (`molecules.hpp`) and the rotation step (`layout.hpp`), feasible on all seven committed examples with the Gauss-Bonnet boundary turning verified on every solution: 61 Catch2 tests. Next: translation step (objectives A and B, and the rank of C_w), polygon placement with the overlap check and renders, then T19, edge splitting, remapping, and the tuck proxy.
