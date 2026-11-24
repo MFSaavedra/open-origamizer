@@ -3,6 +3,8 @@
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
+#include <cmath>
+#include <numbers>
 
 #include "detail/quadratic_program.hpp"
 #include "origamizer/check.hpp"
@@ -38,8 +40,40 @@ TEST_CASE("solve handles a diagonal quadratic objective") {
   qp.entries = {{row, 0, 1.0}, {row, 1, 0.5}, {row, 1, 0.5}};  // repeated entries add up
   const auto s = solve(qp);
   REQUIRE(s.status == SolveStatus::kOptimal);
-  REQUIRE(s.x[0] == Approx(0.5).epsilon(1e-6));
-  REQUIRE(s.x[1] == Approx(0.5).epsilon(1e-6));
+  // Polished: exact up to rounding, not just to the solver's tolerance.
+  REQUIRE(std::abs(s.x[0] - 0.5) < 1e-14);
+  REQUIRE(std::abs(s.x[1] - 0.5) < 1e-14);
+  REQUIRE(std::abs(s.objective - 0.25) < 1e-14);
+}
+
+TEST_CASE("polishing keeps active bounds and rows exact") {
+  // minimize (x - 2)^2 + (y + 1)^2 + z^2 subject to x <= 1, y >= 0,
+  // x + z >= 2  ->  x = 1, y = 0, z = 1 (the row and both bounds are active)
+  QuadraticProgram qp;
+  qp.diagonal = {2.0, 2.0, 2.0};
+  qp.cost = {-4.0, 2.0, 0.0};
+  qp.lower = {-kInfinity, 0.0, -kInfinity};
+  qp.upper = {1.0, kInfinity, kInfinity};
+  const auto row = qp.add_row(2, kInfinity);
+  qp.entries = {{row, 0, 1.0}, {row, 2, 1.0}};
+  const auto s = solve(qp);
+  REQUIRE(s.status == SolveStatus::kOptimal);
+  REQUIRE(std::abs(s.x[0] - 1.0) < 1e-14);
+  REQUIRE(std::abs(s.x[1]) < 1e-14);
+  REQUIRE(std::abs(s.x[2] - 1.0) < 1e-14);
+}
+
+TEST_CASE("entries at or below the small matrix value count as zero") {
+  // A rounding residue such as cos(pi / 2) must not make HiGHS reject the
+  // model; the row then reads x = 1.
+  QuadraticProgram lp;
+  lp.add_variable(-kInfinity, kInfinity, 1);
+  lp.add_variable(0, 1, 0);
+  const auto row = lp.add_row(1, 1);
+  lp.entries = {{row, 0, 1.0}, {row, 1, std::cos(std::numbers::pi / 2)}};
+  const auto s = solve(lp);
+  REQUIRE(s.status == SolveStatus::kOptimal);
+  REQUIRE(s.x[0] == Approx(1.0));
 }
 
 TEST_CASE("solve reports infeasible and unbounded programs") {

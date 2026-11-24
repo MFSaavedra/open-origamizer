@@ -15,6 +15,13 @@ namespace origamizer::detail {
 
 inline constexpr double kInfinity = std::numeric_limits<double>::infinity();
 
+/// HiGHS treats matrix entries of magnitude at most its small_matrix_value
+/// (1e-9 by default) as zero and reports a warning when it drops them. The
+/// wrapper drops them first, so that any warning from passModel still counts
+/// as a rejection. In the mapping steps such entries are rounding errors,
+/// such as cos(pi / 2) = 6e-17 in the translation rows.
+inline constexpr double kSmallMatrixValue = 1e-9;
+
 /// minimize   (1/2) sum_k diagonal[k] x_k^2 + cost^T x
 /// subject to row_lower <= A x <= row_upper  and  lower <= x <= upper.
 /// The quadratic part is diagonal with nonnegative entries (convex), which is
@@ -30,7 +37,10 @@ struct QuadraticProgram {
   std::vector<double> diagonal;  ///< empty, or one nonnegative entry per variable
   std::vector<double> lower;     ///< one per variable; -kInfinity allowed
   std::vector<double> upper;     ///< one per variable; kInfinity allowed
-  std::vector<Entry> entries;    ///< nonzeros of A; repeated (row, column) pairs add up
+  /// Nonzeros of A; repeated (row, column) pairs add up. After summing,
+  /// entries of magnitude at most kSmallMatrixValue count as zero, so rows
+  /// should be scaled to have coefficients of order one.
+  std::vector<Entry> entries;
   std::vector<double> row_lower;
   std::vector<double> row_upper;
 
@@ -52,6 +62,8 @@ struct QpSolution {
 };
 
 /// Solves the program with HiGHS (output off, one thread, deterministic).
+/// An optimum counts only if it passes an independent check of the KKT
+/// conditions; otherwise the status is kFailed and the message says why.
 /// Throws InvariantError if the input is malformed (sizes, indices, bounds).
 QpSolution solve(const QuadraticProgram& program);
 
