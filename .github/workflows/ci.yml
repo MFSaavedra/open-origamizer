@@ -8,6 +8,14 @@ on:
     branches: [main]
   pull_request:
 
+# Compile through ccache, kept between runs with actions/cache, so HiGHS and
+# unchanged sources are not recompiled on every run (CLAUDE.md, Environment notes).
+env:
+  CCACHE_DIR: ${{ github.workspace }}/.ccache
+  CCACHE_MAXSIZE: 500M
+  CMAKE_C_COMPILER_LAUNCHER: ccache
+  CMAKE_CXX_COMPILER_LAUNCHER: ccache
+
 jobs:
   cpp:
     name: C++ tests (${{ matrix.compiler }}, ASan and UBSan)
@@ -17,11 +25,17 @@ jobs:
       matrix:
         compiler: [g++, clang++]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libcgal-dev libeigen3-dev catch2 ninja-build
+          sudo apt-get install -y --no-install-recommends libcgal-dev libeigen3-dev catch2 ninja-build ccache
+      - name: Restore the compiler cache
+        uses: actions/cache@v6
+        with:
+          path: .ccache
+          key: ccache-cpp-${{ matrix.compiler }}-${{ github.sha }}
+          restore-keys: ccache-cpp-${{ matrix.compiler }}-
       - name: Configure
         run: >
           cmake -S . -B build -G Ninja
@@ -30,7 +44,10 @@ jobs:
           -DORIGAMIZER_SANITIZE=ON
           -DCMAKE_COMPILE_WARNING_AS_ERROR=ON
       - name: Build
-        run: cmake --build build
+        run: |
+          ccache --zero-stats
+          cmake --build build
+          ccache --show-stats
       - name: Test
         run: ctest --test-dir build --output-on-failure
 
@@ -38,13 +55,22 @@ jobs:
     name: Python tests
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libcgal-dev libeigen3-dev ninja-build
-      - uses: astral-sh/setup-uv@v6
+          sudo apt-get install -y --no-install-recommends libcgal-dev libeigen3-dev ninja-build ccache
+      - name: Restore the compiler cache
+        uses: actions/cache@v6
+        with:
+          path: .ccache
+          key: ccache-python-${{ github.sha }}
+          restore-keys: ccache-python-
+      - uses: astral-sh/setup-uv@v7
       - name: Build and install
-        run: uv sync --locked
+        run: |
+          ccache --zero-stats
+          uv sync --locked
+          ccache --show-stats
       - name: Test
         run: uv run pytest
