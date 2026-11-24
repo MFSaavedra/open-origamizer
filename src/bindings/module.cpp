@@ -198,6 +198,8 @@ NB_MODULE(_core, m) {
               "For each mesh face, the face of the input it comes from.")
       .def_ro("split_faces", &og::PreparedMesh::split_faces,
               "Input faces that were split into convex pieces.")
+      .def_ro("triangulated_faces", &og::PreparedMesh::triangulated_faces,
+              "Nonplanar input quadrilaterals that were split into triangles.")
       .def_ro("reoriented_faces", &og::PreparedMesh::reoriented_faces,
               "Input faces reversed to make the orientation consistent.")
       .def_ro("flipped_to_clean_side", &og::PreparedMesh::flipped_to_clean_side,
@@ -205,16 +207,17 @@ NB_MODULE(_core, m) {
 
   m.def(
       "prepare_mesh",
-      [](og::PolygonSoup soup, bool make_orientation_consistent, double planarity_tolerance,
-         double area_tolerance) {
+      [](og::PolygonSoup soup, bool make_orientation_consistent, bool triangulate_nonplanar,
+         double planarity_tolerance, double area_tolerance) {
         og::PrepareOptions options;
         options.make_orientation_consistent = make_orientation_consistent;
+        options.triangulate_nonplanar = triangulate_nonplanar;
         options.tolerances.planarity = planarity_tolerance;
         options.tolerances.area = area_tolerance;
         return og::prepare_mesh(std::move(soup), options);
       },
       "soup"_a, nb::kw_only(), "make_orientation_consistent"_a = false,
-      "planarity_tolerance"_a = og::Tolerances{}.planarity,
+      "triangulate_nonplanar"_a = false, "planarity_tolerance"_a = og::Tolerances{}.planarity,
       "area_tolerance"_a = og::Tolerances{}.area,
       "Check a soup, split nonconvex faces, build the mesh, and orient its clean side.");
 

@@ -1032,7 +1032,11 @@ std::vector<double> turning_angles(const std::vector<Point2>& polygon, double ti
 OverlapReport check_overlap(const MoleculeMesh& mesh, const Layout& layout) {
   ORIGAMIZER_CHECK(!layout.outline.empty(), "the overlap check needs the boundary digons");
   const double scale = mean_molecule_length(mesh);
-  const double tiny = 1e-12 * scale;
+  // Sides shorter than a millionth of the mean edge count as zero length:
+  // their direction would come from coordinates whose rounding noise grows
+  // along the placement (a side of 1.5e-12 mean edges, from a width polished
+  // to zero, gave a spurious turn of -0.066 on the 16 x 16 test surface).
+  const double tiny = 1e-6 * scale;
   OverlapReport report;
   report.smallest_area = std::numeric_limits<double>::infinity();
   double cells = 0;
@@ -1059,7 +1063,7 @@ OverlapReport check_overlap(const MoleculeMesh& mesh, const Layout& layout) {
   }
   const double outline_area = twice_area(layout.outline) / 2;
   report.area_mismatch = std::abs(cells - outline_area) / std::abs(outline_area);
-  constexpr double kAngle = 1e-9;
+  constexpr double kAngle = 1e-6;  // radians; directions of sides above `tiny` are this accurate
   report.valid = report.smallest_area >= -negligible && report.reflex_turn >= -kAngle &&
                  std::abs(report.outline_turning - 2 * pi) <= 1e-6 && report.area_mismatch <= 1e-9;
   return report;
@@ -1152,10 +1156,26 @@ Mapping map_surface(const SurfaceMesh& mesh, const MappingOptions& options) {
             reconstruct_layout(mapping.cut.disk, mapping.molecules, mapping.theta, mapping.w);
         if (mapping.molecules.digon_molecules > 0) {
           const OverlapReport overlap = check_overlap(mapping.molecules, mapping.layout);
-          ORIGAMIZER_CHECK(overlap.valid, "a feasible mapping overlaps (smallest molecule area " +
-                                              format(overlap.smallest_area) + ", reflex turn " +
-                                              format(overlap.reflex_turn) + ", outline turning " +
-                                              format(overlap.outline_turning) + ")");
+          const std::string details = "smallest molecule area " + format(overlap.smallest_area) +
+                                      ", reflex turn " + format(overlap.reflex_turn) +
+                                      ", outline turning " + format(overlap.outline_turning);
+          // With every width positive, T4 to T8 guarantee a valid layout, so
+          // an overlap is a bug. A zero width merges two corners of a
+          // vertex-tucking molecule, and nothing keeps their exterior angles
+          // from adding up to more than pi (docs/notes.tex, M2): then the
+          // attempt fails instead.
+          const double smallest = *std::min_element(mapping.w.begin(), mapping.w.end());
+          ORIGAMIZER_CHECK(
+              overlap.valid || smallest < 1e-6 * mean_molecule_length(mapping.molecules),
+              "a feasible mapping with positive widths overlaps (" + details + ")");
+          if (!overlap.valid) {
+            mapping.feasible = false;
+            mapping.attempts.back().feasible = false;
+            mapping.attempts.back().message +=
+                "; the layout overlaps where widths are zero (" + details + ")";
+            mapping.layout = Layout{};
+            continue;
+          }
         }
         return mapping;
       }

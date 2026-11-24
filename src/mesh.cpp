@@ -511,7 +511,21 @@ FaceShape face_shape(const PolygonSoup& soup, std::size_t face_index) {
   return shape;
 }
 
-SplitResult split_nonconvex_faces(const PolygonSoup& soup, const Tolerances& tol) {
+namespace {
+
+/// The smallest corner angle of triangle (a, b, c).
+double smallest_angle(const Point3& a, const Point3& b, const Point3& c) {
+  const auto angle = [](const Point3& p, const Point3& q, const Point3& r) {
+    const Vector3 u = q - p, v = r - p;
+    return std::atan2(std::sqrt(CGAL::cross_product(u, v).squared_length()), u * v);
+  };
+  return std::min({angle(a, b, c), angle(b, c, a), angle(c, a, b)});
+}
+
+}  // namespace
+
+SplitResult split_nonconvex_faces(const PolygonSoup& soup, const Tolerances& tol,
+                                  bool triangulate_nonplanar) {
   using PartitionTraits =
       CGAL::Partition_traits_2<Kernel, CGAL::Pointer_property_map<Point2>::const_type>;
 
@@ -527,9 +541,32 @@ SplitResult split_nonconvex_faces(const PolygonSoup& soup, const Tolerances& tol
       continue;
     }
     if (shape.planarity_error > tol.planarity) {
+      if (triangulate_nonplanar && face.size() == 4) {
+        // Two triangles along the diagonal with the larger smallest angle.
+        const auto& p = soup.points;
+        const double through_02 = std::min(smallest_angle(p[face[0]], p[face[1]], p[face[2]]),
+                                           smallest_angle(p[face[0]], p[face[2]], p[face[3]]));
+        const double through_13 = std::min(smallest_angle(p[face[0]], p[face[1]], p[face[3]]),
+                                           smallest_angle(p[face[1]], p[face[2]], p[face[3]]));
+        const bool first = through_02 >= through_13;
+        const std::vector<std::vector<std::size_t>> triangles =
+            first ? std::vector<std::vector<std::size_t>>{{face[0], face[1], face[2]},
+                                                          {face[0], face[2], face[3]}}
+                  : std::vector<std::vector<std::size_t>>{{face[0], face[1], face[3]},
+                                                          {face[1], face[2], face[3]}};
+        for (const auto& triangle : triangles) {
+          result.soup.faces.push_back(triangle);
+          result.origin.push_back(f);
+        }
+        result.triangulated.push_back(f);
+        continue;
+      }
       problems.push_back(
           name + " is not planar: a vertex lies " + format_number(shape.planarity_error) +
-          " face diameters from its plane (tolerance " + format_number(tol.planarity) + ")");
+          " face diameters from its plane (tolerance " + format_number(tol.planarity) + ")" +
+          (face.size() == 4 && !triangulate_nonplanar
+               ? "; set triangulate_nonplanar to split such quadrilaterals"
+               : ""));
       continue;
     }
     if (!shape.simple) {
@@ -763,9 +800,11 @@ PreparedMesh prepare_mesh(PolygonSoup soup, const PrepareOptions& options) {
       throw InvariantError(message);
     }
   }
-  SplitResult split = split_nonconvex_faces(soup, options.tolerances);
+  SplitResult split =
+      split_nonconvex_faces(soup, options.tolerances, options.triangulate_nonplanar);
   prepared.face_origin = std::move(split.origin);
   prepared.split_faces = std::move(split.split);
+  prepared.triangulated_faces = std::move(split.triangulated);
   prepared.mesh = build_mesh(split.soup);
   prepared.flipped_to_clean_side = orient_clean_side_out(prepared.mesh);
   return prepared;

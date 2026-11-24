@@ -125,16 +125,22 @@ FaceShape face_shape(const PolygonSoup& soup, std::size_t face);
 struct SplitResult {
   PolygonSoup soup;                 ///< the same vertices; nonconvex faces replaced by their pieces
   std::vector<std::size_t> origin;  ///< face of `soup` -> face of the input
-  std::vector<std::size_t> split;   ///< input faces that were split
+  std::vector<std::size_t> split;   ///< input faces that were split into convex pieces
+  std::vector<std::size_t> triangulated;  ///< nonplanar input faces split into triangles
 };
 
 /// Splits every nonconvex face into the fewest convex pieces, using diagonals
 /// only (CGAL::optimal_convex_partition_2 in the face plane). The method needs
 /// convex facets: concave corners violate the necessary conditions T13 and
-/// T14 of TVCG10 Sec. 5.2, and SoCG17 Sec. 2 assumes convex facets. Throws
-/// InvariantError listing every face that is too small, nonplanar, or not
-/// simple under `tol`.
-SplitResult split_nonconvex_faces(const PolygonSoup& soup, const Tolerances& tol = {});
+/// T14 of TVCG10 Sec. 5.2, and SoCG17 Sec. 2 assumes convex facets. With
+/// `triangulate_nonplanar`, a nonplanar quadrilateral is split into two
+/// triangles along the diagonal whose triangles have the larger smallest
+/// angle (TVCG10 Sec. 5.2 triangulates every face; docs/notes.tex, M2).
+/// Throws InvariantError listing every face that is too small, nonplanar
+/// (with more than four vertices, or without the option), or not simple
+/// under `tol`.
+SplitResult split_nonconvex_faces(const PolygonSoup& soup, const Tolerances& tol = {},
+                                  bool triangulate_nonplanar = false);
 
 // Mesh -----------------------------------------------------------------------
 
@@ -207,15 +213,20 @@ struct PrepareOptions {
   /// Reverse faces to make an orientable but inconsistently oriented soup
   /// consistent. Off by default, so that such input is reported as an error.
   bool make_orientation_consistent = false;
+  /// Split nonplanar quadrilaterals into two triangles (see
+  /// split_nonconvex_faces). Off by default, so that such input is reported
+  /// as an error; quad meshes of curved surfaces need it.
+  bool triangulate_nonplanar = false;
   Tolerances tolerances;
 };
 
 struct PreparedMesh {
   SurfaceMesh mesh;
-  std::vector<std::size_t> face_origin;       ///< mesh face -> face of the input soup
-  std::vector<std::size_t> split_faces;       ///< input faces split into convex pieces
-  std::vector<std::size_t> reoriented_faces;  ///< input faces reversed for consistency
-  bool flipped_to_clean_side = false;         ///< all faces reversed so a closed mesh faces out
+  std::vector<std::size_t> face_origin;         ///< mesh face -> face of the input soup
+  std::vector<std::size_t> split_faces;         ///< input faces split into convex pieces
+  std::vector<std::size_t> triangulated_faces;  ///< nonplanar input faces split into triangles
+  std::vector<std::size_t> reoriented_faces;    ///< input faces reversed for consistency
+  bool flipped_to_clean_side = false;           ///< all faces reversed so a closed mesh faces out
 };
 
 /// Checks the soup, splits nonconvex faces, builds the mesh, and orients its

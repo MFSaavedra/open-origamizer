@@ -15,6 +15,7 @@
 using Catch::Approx;
 using Catch::Matchers::ContainsSubstring;
 using origamizer::face_shape;
+using origamizer::PolygonSoup;
 using origamizer::split_nonconvex_faces;
 using test::flat_polygon;
 
@@ -54,6 +55,36 @@ TEST_CASE("face_shape measures nonplanarity relative to the diameter") {
   const auto shape = face_shape(soup, 0);
   REQUIRE(shape.planarity_error > 1e-3);
   REQUIRE_THROWS_WITH(split_nonconvex_faces(soup), ContainsSubstring("face 0 is not planar"));
+}
+
+TEST_CASE("split_nonconvex_faces triangulates a nonplanar quadrilateral on request") {
+  // A skew quad: lifting one corner makes it nonplanar. Diagonal 0-2 gives
+  // triangles (0,1,2) and (0,2,3); diagonal 1-3 gives (0,1,3) and (1,2,3).
+  auto soup = flat_polygon({{0, 0}, {4, 0}, {4, 1}, {0, 1}});
+  soup.points[2] = origamizer::Point3(4, 1, 0.5);
+  REQUIRE_THROWS_WITH(split_nonconvex_faces(soup), ContainsSubstring("set triangulate_nonplanar"));
+  const auto split = split_nonconvex_faces(soup, {}, true);
+  REQUIRE(split.triangulated == std::vector<std::size_t>{0});
+  REQUIRE(split.split.empty());
+  REQUIRE(split.soup.faces.size() == 2);
+  REQUIRE(split.origin == std::vector<std::size_t>{0, 0});
+  for (std::size_t f = 0; f < 2; ++f) {
+    REQUIRE(split.soup.faces[f].size() == 3);
+    REQUIRE(face_shape(split.soup, f).planarity_error < 1e-12);
+    REQUIRE(face_shape(split.soup, f).normal.z() > 0);  // orientation kept
+  }
+}
+
+TEST_CASE("triangulate_nonplanar picks the diagonal with the larger smallest angle") {
+  // A kite-like skew quad where diagonal 1-3 avoids a sliver.
+  PolygonSoup soup;
+  soup.points = {origamizer::Point3(0, 0, 0), origamizer::Point3(1, -0.2, 0.05),
+                 origamizer::Point3(2, 0, 0), origamizer::Point3(1, 3, 0.05)};
+  soup.faces = {{0, 1, 2, 3}};
+  REQUIRE(face_shape(soup, 0).planarity_error > 1e-6);
+  const auto split = split_nonconvex_faces(soup, {}, true);
+  REQUIRE(split.soup.faces[0] == std::vector<std::size_t>{0, 1, 3});
+  REQUIRE(split.soup.faces[1] == std::vector<std::size_t>{1, 2, 3});
 }
 
 TEST_CASE("split_nonconvex_faces leaves convex faces alone") {
