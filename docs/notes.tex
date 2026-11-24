@@ -531,10 +531,11 @@ compare once M4 measures layouts.
 
 \subsection{Mapping driver}
 
-\texttt{map\_surface} runs the steps in the order the results above suggest:
-for each cut in \texttt{MappingOptions::cuts} (minimal, then tree), build the
-molecule mesh, run the rotation and translation steps, and if the translation
-fails, remap and run both again; stop at the first success. It returns the
+\texttt{map\_surface} runs the steps in the order the results above suggest.
+For each cut in the list \texttt{MappingOptions::cuts} (minimal, then tree),
+it builds the molecule mesh, runs the rotation and translation steps, and if
+the translation fails, remaps and runs both again; it stops at the first
+success. It returns the
 cut, the molecule mesh, the angles, the widths, and every attempt with the
 message of the step that failed. With objective~B a failed mapping keeps
 phase~1's widths, so the crossed molecules can be drawn. On the committed
