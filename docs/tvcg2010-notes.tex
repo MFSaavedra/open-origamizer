@@ -731,6 +731,10 @@ planar construction; $w_{\mathrm{div}}$ and \eqref{eq:arc} against geometry.
 Boundary bookkeeping. Which $\ETM$, $\VTM$, and digon Sec.~5.1 adds per boundary
 edge, how they connect, and which sector angles sit next to $o$. Settle this
 with small cases (one triangle, a 2-by-2 grid) before M2.
+\emph{Status (24 November 2026): settled for the equations.} T1 with T8 needs
+at least three slots per star, and the digons provide them; the slot order and
+sectors are in \texttt{notes.tex}, M2. Their place in the 2D layout comes with
+the reconstruction.
 \end{openq}
 
 \begin{openq}\label{oq:axis}
@@ -754,6 +758,8 @@ read it before M3.
 \begin{openq}\label{oq:dof}
 Degrees of freedom. Verify $\Nv = \frac13\Ne + 1$ and the full row rank of
 $C_\theta$ and $C_w$ by computing ranks on preprocessed meshes.
+\emph{Status (24 November 2026): half answered.} $C_\theta$ has full row rank on
+every disk (\texttt{notes.tex}, M2); $C_w$ comes with the translation step.
 \end{openq}
 
 \begin{openq}\label{oq:alg}

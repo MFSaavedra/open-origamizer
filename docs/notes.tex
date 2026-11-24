@@ -206,9 +206,82 @@ GPL repository.
 
 \section{M2: layout}
 
-Code: \texttt{src/detail/quadratic\_program.*} so far. This section records
-the decisions as they are made; equation tags T1 to T19 refer to
+Code so far: the headers \texttt{molecules.hpp} and \texttt{layout.hpp} in
+\texttt{include/origamizer}, and \texttt{src/detail/quadratic\_program.*}. This section records the
+decisions as they are made; equation tags T1 to T19 refer to
 \texttt{tvcg2010-notes}.
+
+\subsection{Molecule mesh}
+
+On the cut disk, every interior edge gets an edge-tucking molecule, oriented
+from its smaller vertex index to the larger, and every boundary vertex gets a
+boundary molecule. The \emph{star} of a vertex lists its molecules
+counterclockwise, seen from the clean side; slot $n$ carries the sign of
+$\theta(v, j_n)$ relative to the molecule's orientation and the sector
+$\alpha(v, j_n)$, the corner of the polygon between slots $n-1$ and~$n$. With
+counterclockwise faces, the corner of the face of an incoming halfedge $h$
+lies between \texttt{edge(next($h$))} (clockwise side) and
+\texttt{edge($h$)} (counterclockwise side), and the next face counterclockwise
+is that of \texttt{prev(opposite($h$))}; CGAL's
+\texttt{halfedges\_around\_target} runs clockwise, so the code walks the stars
+itself. A test on a flat hexagonal fan checks the order. Built in, and checked
+on construction: each edge molecule appears in the stars of both its ends with
+opposite signs, and each boundary vertex has one boundary molecule. Tested:
+the defects of a disk sum to $2\pi + \pi N_\partial$, with $N_\partial$ the
+number of boundary vertices (the Gauss-Bonnet identity of
+\texttt{tvcg2010-notes}, Sec.~4).
+
+\subsection{Boundary digons (default changed)}
+
+T8 makes every vertex-tucking molecule a convex polygon: each exterior angle
+$\Theta_m$ lies in $[0, \pi)$, and by T1 (with T3) they sum to $2\pi$. So a star
+needs at least three slots. In the plain reading of the boundary molecules, a
+boundary vertex with $K$ faces has $K$ slots ($K-1$ edge molecules and the
+boundary molecule), so any boundary vertex with one or two faces makes the
+rotation step infeasible. Every example has such vertices:
+
+\begin{center}
+\small
+\begin{tabular}{@{}lrr@{}}
+\toprule
+Disk & boundary vertices & with one or two faces \\
+\midrule
+tetrahedron & 4 & 2 \\
+cube & 6 & 4 \\
+octahedron & 4 & 2 \\
+L prism & 6 & 3 \\
+torus & 40 & 40 \\
+open cylinder & 26 & 26 \\
+saddle & 24 & 4 \\
+Stanford bunny & 114 & 44 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+This explains TVCG10 Sec.~5.1, which adds, along every boundary edge, a
+zero-area digon glued to the face by an extra edge-tucking molecule ``to avoid
+overconstraints by convex paper conditions''. Every boundary star gains two
+slots: counterclockwise, the edge molecules between the faces (sectors
+$c_1, \dots, c_{K-1}$), then the digon molecule of the counterclockwise boundary
+edge (sector $c_K$, the last face's corner), the boundary molecule (sector~0,
+a digon corner), and the digon molecule of the clockwise boundary edge
+(sector~0). The digon molecules are shared by the stars of both ends of their
+edge. The digons are therefore on by default (they were first proposed as an
+option); \texttt{MoleculeOptions::boundary\_digons} turns them off. This
+settles Open question~1 of \texttt{tvcg2010-notes} for the equations; how
+digons appear in the 2D layout comes with the reconstruction.
+
+\subsection{Rotation step: results}
+
+With the digons, the rotation program (below) is feasible on all seven
+committed examples, in 0.6\,s for all seven together. On every solution the
+residuals of T15, T4, T6, and T8 are below $10^{-6}$, and the boundary
+molecules turn by exactly one full turn,
+$\sum_{\partial}(\theta(i,o) - \pi) = 2\pi$, as the Gauss-Bonnet argument of
+\texttt{tvcg2010-notes} predicts. The rotation equations have full row rank
+($N_{\mathrm{vert}}$) on a disk: their matrix is the signed incidence matrix of
+a connected graph (rank $N_{\mathrm{vert}} - 1$) plus the boundary molecules'
+columns. This answers the rotation half of Open question~5.
 
 \subsection{Solver}
 
@@ -252,7 +325,7 @@ $|\theta(i,j)| \le \pi - \epsilon_\theta$ and T8 becomes
 $0 \le \Theta_m \le \pi - \epsilon_\Theta$, with
 $\epsilon_\theta = \epsilon_\Theta = 10^{-3}$ by default.
 
-\paragraph{Rotation step.} Minimize $\sum \theta_n^2$ over the edge-tucking
+\paragraph{Rotation step.} Minimize $\sum \theta_n^2$ over the edge and digon
 molecules, subject to T15 ($C_\theta\boldsymbol\theta = \mathbf g$), T4, T6,
 and T8. The paper starts its descent from the minimum-norm solution
 $C_\theta^+\mathbf g$; this picks the feasible angles closest to rectangular

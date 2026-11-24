@@ -58,7 +58,9 @@ add_library(origamizer_core STATIC
   src/check.cpp
   src/cut.cpp
   src/detail/quadratic_program.cpp
+  src/layout.cpp
   src/mesh.cpp
+  src/molecules.cpp
 )
 target_include_directories(origamizer_core PUBLIC ${PROJECT_SOURCE_DIR}/include
                                            PRIVATE ${PROJECT_SOURCE_DIR}/src)
@@ -73,6 +75,8 @@ if(ORIGAMIZER_BUILD_TESTS)
     tests/cpp/test_check_ndebug.cpp
     tests/cpp/test_cut.cpp
     tests/cpp/test_face_shape.cpp
+    tests/cpp/test_layout.cpp
+    tests/cpp/test_molecules.cpp
     tests/cpp/test_obj.cpp
     tests/cpp/test_quadratic_program.cpp
     tests/cpp/test_soup.cpp
