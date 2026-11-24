@@ -374,3 +374,35 @@ TEST_CASE("the rotation equations have full row rank on a disk") {
     REQUIRE(origamizer::numerical_rank(origamizer::rotation_equations(mesh)) == mesh.stars.size());
   }
 }
+
+TEST_CASE("every mapped example passes the overlap check") {
+  for (const char* name : test::kExamples) {
+    INFO(name);
+    const auto mesh = origamizer::prepare_mesh(origamizer::read_obj(test::example_path(name))).mesh;
+    const auto mapping = origamizer::map_surface(mesh);
+    REQUIRE(mapping.feasible);
+    const auto report = origamizer::check_overlap(mapping.molecules, mapping.layout);
+    INFO("smallest area " << report.smallest_area << ", reflex turn " << report.reflex_turn
+                          << ", outline turning " << report.outline_turning << ", area mismatch "
+                          << report.area_mismatch);
+    REQUIRE(report.valid);
+    REQUIRE(report.smallest_area > 0);  // objective A keeps every width above 1% of an edge
+    REQUIRE(report.outline_turning == Approx(2 * pi));
+    REQUIRE(mapping.layout.outline.size() == 2 * mapping.molecules.boundary_molecules());
+  }
+}
+
+TEST_CASE("the overlap check flags crossed molecules") {
+  // The cube with the rotation step's angles needs negative widths; with
+  // phase 1's widths the layout closes but molecules flip.
+  const auto disk = disk_of("cube");
+  const auto mesh = origamizer::build_molecule_mesh(disk);
+  const auto theta = origamizer::solve_rotation(mesh).theta;
+  origamizer::TranslationOptions options;
+  options.objective = origamizer::WidthObjective::kPaperPenalty;
+  const auto w = origamizer::solve_translation(mesh, theta, options).w;
+  const auto report =
+      origamizer::check_overlap(mesh, origamizer::reconstruct_layout(disk, mesh, theta, w));
+  REQUIRE_FALSE(report.valid);
+  REQUIRE(report.smallest_area < 0);
+}

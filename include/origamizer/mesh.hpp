@@ -29,6 +29,7 @@ namespace origamizer {
 
 using Kernel = CGAL::Exact_predicates_inexact_constructions_kernel;
 using Point2 = Kernel::Point_2;
+using Vector2 = Kernel::Vector_2;
 using Point3 = Kernel::Point_3;
 using Vector3 = Kernel::Vector_3;
 using SurfaceMesh = CGAL::Surface_mesh<Point3>;

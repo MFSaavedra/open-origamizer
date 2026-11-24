@@ -389,7 +389,29 @@ NB_MODULE(_core, m) {
       .def_prop_ro(
           "corners", [](const og::Layout& layout) { return to_xy(layout.corners); },
           "For each polygon, its corners as [x, y] lists.")
-      .def_ro("closure_error", &og::Layout::closure_error);
+      .def_ro("closure_error", &og::Layout::closure_error)
+      .def_prop_ro(
+          "outline", [](const og::Layout& layout) { return to_xy({layout.outline})[0]; },
+          "The boundary of the paper, counterclockwise.")
+      .def_prop_ro(
+          "edge_molecules", [](const og::Layout& layout) { return to_xy(layout.edge_molecules); },
+          "Each edge-tucking molecule as a quadrilateral, by molecule; empty for boundary "
+          "molecules.")
+      .def_prop_ro(
+          "vertex_molecules",
+          [](const og::Layout& layout) { return to_xy(layout.vertex_molecules); },
+          "Each vertex-tucking molecule, its corners counterclockwise.");
+
+  nb::class_<og::OverlapReport>(m, "OverlapReport",
+                                "Whether a layout is a crease pattern without overlap.")
+      .def_ro("smallest_area", &og::OverlapReport::smallest_area)
+      .def_ro("reflex_turn", &og::OverlapReport::reflex_turn)
+      .def_ro("outline_turning", &og::OverlapReport::outline_turning)
+      .def_ro("area_mismatch", &og::OverlapReport::area_mismatch)
+      .def_ro("valid", &og::OverlapReport::valid);
+  m.def("check_overlap", &og::check_overlap, "mesh"_a, "layout"_a,
+        "Check that every molecule is convex with nonnegative area and the outline is convex "
+        "(TVCG10 Sec. 4.2.1).");
 
   m.def("reconstruct_layout", &og::reconstruct_layout, "disk"_a, "mesh"_a, "theta"_a, "w"_a,
         "Place the polygons from the angles and widths and check that the molecule mesh closes.");
@@ -411,7 +433,8 @@ NB_MODULE(_core, m) {
       .def_ro("molecules", &og::Mapping::molecules)
       .def_ro("theta", &og::Mapping::theta)
       .def_ro("w", &og::Mapping::w)
-      .def_ro("attempts", &og::Mapping::attempts);
+      .def_ro("attempts", &og::Mapping::attempts)
+      .def_ro("layout", &og::Mapping::layout, "The placed polygons, when feasible.");
 
   m.def(
       "map_surface",

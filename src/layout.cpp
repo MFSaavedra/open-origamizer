@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <limits>
 #include <numbers>
 #include <string>
 
@@ -785,7 +786,117 @@ Layout reconstruct_layout(const SurfaceMesh& disk, const MoleculeMesh& mesh,
   ORIGAMIZER_CHECK(layout.closure_error <= 1e-6 * scale,
                    "the molecule mesh does not close (error " + format(layout.closure_error) +
                        "): theta and w must satisfy T15 and T17");
+
+  // The cells for drawing and checking: the molecules as polygons, and the
+  // outline from the boundary stars (see Layout::outline).
+  const auto corner_of = [&](std::size_t p, std::size_t v) {
+    const Vec c = placed[p](local_of(p, v));
+    return Point2(c[0], c[1]);
+  };
+  layout.edge_molecules.resize(mesh.molecules.size());
+  for (std::size_t molecule = 0; molecule < mesh.molecules.size(); ++molecule) {
+    const Molecule& m = mesh.molecules[molecule];
+    if (m.kind == Molecule::Kind::kBoundary) continue;
+    const auto [p0, p1] = sides[molecule];
+    layout.edge_molecules[molecule] = {corner_of(p0, m.i), corner_of(p0, m.j), corner_of(p1, m.j),
+                                       corner_of(p1, m.i)};
+  }
+  std::vector<std::size_t> boundary_slot(mesh.stars.size(), kNone);
+  for (std::size_t v = 0; v < mesh.stars.size(); ++v) {
+    const auto& slots = mesh.stars[v].slots;
+    layout.vertex_molecules.emplace_back();
+    for (std::size_t n = 0; n < slots.size(); ++n) {
+      layout.vertex_molecules[v].push_back(corner_of(slots[n].polygon, v));
+      if (mesh.molecules[slots[n].molecule].kind == Molecule::Kind::kBoundary) boundary_slot[v] = n;
+    }
+  }
+  if (mesh.digon_molecules > 0) {
+    // Walk the boundary: after the boundary molecule of v comes the digon of
+    // v's clockwise boundary edge, whose other end is the next boundary vertex.
+    std::size_t first = kNone;
+    for (std::size_t v = 0; v < mesh.stars.size() && first == kNone; ++v) {
+      if (boundary_slot[v] != kNone) first = v;
+    }
+    std::size_t v = first;
+    do {
+      const auto& slots = mesh.stars[v].slots;
+      const std::size_t n = boundary_slot[v];
+      const std::size_t before = slots[n].polygon;
+      const std::size_t after = slots[(n + 1) % slots.size()].polygon;
+      layout.outline.push_back(corner_of(before, v));
+      layout.outline.push_back(corner_of(after, v));
+      const auto& ends = layout.vertices[after];
+      v = ends[0] == v ? ends[1] : ends[0];
+      ORIGAMIZER_CHECK(layout.outline.size() <= 2 * mesh.stars.size(),
+                       "the boundary walk does not close");
+    } while (v != first);
+    ORIGAMIZER_CHECK(layout.outline.size() == 2 * mesh.boundary_molecules(),
+                     "the boundary walk missed boundary vertices");
+  }
   return layout;
+}
+
+namespace {
+
+/// Twice the signed area of a polygon (shoelace).
+double twice_area(const std::vector<Point2>& polygon) {
+  double sum = 0;
+  for (std::size_t k = 0; k < polygon.size(); ++k) {
+    const Point2& a = polygon[k];
+    const Point2& b = polygon[(k + 1) % polygon.size()];
+    sum += a.x() * b.y() - a.y() * b.x();
+  }
+  return sum;
+}
+
+/// The turning angles at the corners of a closed polygon, skipping sides
+/// shorter than `tiny` (they have no direction).
+std::vector<double> turning_angles(const std::vector<Point2>& polygon, double tiny) {
+  std::vector<Vector2> sides;
+  for (std::size_t k = 0; k < polygon.size(); ++k) {
+    const Vector2 side = polygon[(k + 1) % polygon.size()] - polygon[k];
+    if (side.squared_length() > tiny * tiny) sides.push_back(side);
+  }
+  std::vector<double> turns;
+  for (std::size_t k = 0; k < sides.size(); ++k) {
+    const Vector2& a = sides[k];
+    const Vector2& b = sides[(k + 1) % sides.size()];
+    turns.push_back(std::atan2(a.x() * b.y() - a.y() * b.x(), a * b));
+  }
+  return turns;
+}
+
+}  // namespace
+
+OverlapReport check_overlap(const MoleculeMesh& mesh, const Layout& layout) {
+  ORIGAMIZER_CHECK(!layout.outline.empty(), "the overlap check needs the boundary digons");
+  const double scale = mean_molecule_length(mesh);
+  const double tiny = 1e-12 * scale;
+  OverlapReport report;
+  report.smallest_area = std::numeric_limits<double>::infinity();
+  double cells = 0;
+  const auto molecule = [&](const std::vector<Point2>& polygon) {
+    if (polygon.empty()) return;
+    const double area = twice_area(polygon) / 2;
+    report.smallest_area = std::min(report.smallest_area, area);
+    cells += area;
+    for (const double turn : turning_angles(polygon, tiny)) {
+      report.reflex_turn = std::min(report.reflex_turn, turn);
+    }
+  };
+  for (const auto& polygon : layout.edge_molecules) molecule(polygon);
+  for (const auto& polygon : layout.vertex_molecules) molecule(polygon);
+  for (std::size_t p = 0; p < mesh.faces; ++p) cells += twice_area(layout.corners[p]) / 2;
+  for (const double turn : turning_angles(layout.outline, tiny)) {
+    report.reflex_turn = std::min(report.reflex_turn, turn);
+    report.outline_turning += turn;
+  }
+  const double outline_area = twice_area(layout.outline) / 2;
+  report.area_mismatch = std::abs(cells - outline_area) / std::abs(outline_area);
+  constexpr double kAngle = 1e-9;
+  report.valid = report.smallest_area >= -1e-9 * scale * scale && report.reflex_turn >= -kAngle &&
+                 std::abs(report.outline_turning - 2 * pi) <= 1e-6 && report.area_mismatch <= 1e-9;
+  return report;
 }
 
 Mapping map_surface(const SurfaceMesh& mesh, const MappingOptions& options) {
@@ -824,6 +935,15 @@ Mapping map_surface(const SurfaceMesh& mesh, const MappingOptions& options) {
       }
       if (translation.feasible) {
         mapping.feasible = true;
+        mapping.layout =
+            reconstruct_layout(mapping.cut.disk, mapping.molecules, mapping.theta, mapping.w);
+        if (mapping.molecules.digon_molecules > 0) {
+          const OverlapReport overlap = check_overlap(mapping.molecules, mapping.layout);
+          ORIGAMIZER_CHECK(overlap.valid, "a feasible mapping overlaps (smallest molecule area " +
+                                              format(overlap.smallest_area) + ", reflex turn " +
+                                              format(overlap.reflex_turn) + ", outline turning " +
+                                              format(overlap.outline_turning) + ")");
+        }
         return mapping;
       }
     }

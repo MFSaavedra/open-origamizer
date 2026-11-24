@@ -124,3 +124,7 @@ def test_map_surface(name):
     assert last.remapped == (name == "cube")
     layout = og.reconstruct_layout(mapping.cut.disk, mapping.molecules, mapping.theta, mapping.w)
     assert layout.closure_error < 1e-9 * og.mean_molecule_length(mapping.molecules)
+    report = og.check_overlap(mapping.molecules, mapping.layout)
+    assert report.valid and report.smallest_area > 0
+    assert math.isclose(report.outline_turning, 2 * math.pi)
+    assert len(mapping.layout.outline) == 2 * mapping.molecules.boundary_molecules

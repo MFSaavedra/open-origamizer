@@ -59,10 +59,6 @@ def layout_of(name, objective):
     return mesh, mapping.w, layout, status
 
 
-def corner(layout, polygon, vertex):
-    return layout.corners[polygon][layout.vertices[polygon].index(vertex)]
-
-
 def draw(ax, name, objective):
     mesh, widths, layout, status = layout_of(name, objective)
     ax.set_title(f"{name}\n{status}", fontsize=9)
@@ -72,22 +68,12 @@ def draw(ax, name, objective):
         return
     digons = range(mesh.faces, mesh.polygons)
 
-    # Vertex-tucking molecules: the copies of each vertex, counterclockwise.
-    vtms = [[corner(layout, slot.polygon, v) for slot in star.slots]
-            for v, star in enumerate(mesh.stars)]
-    # Edge-tucking molecules: the legs in the polygons before (P0) and after
-    # (P1) the molecule, counterclockwise around its vertex i.
+    vtms = layout.vertex_molecules
     etms, colors = [], []
-    for star_vertex, star in enumerate(mesh.stars):
-        for n, slot in enumerate(star.slots):
-            molecule = mesh.molecules[slot.molecule]
-            if molecule.kind == og.MoleculeKind.BOUNDARY or slot.sign != 1:
-                continue
-            p0 = slot.polygon
-            p1 = star.slots[(n + 1) % len(star.slots)].polygon
-            etms.append([corner(layout, p0, molecule.i), corner(layout, p0, molecule.j),
-                         corner(layout, p1, molecule.j), corner(layout, p1, molecule.i)])
-            colors.append(CROSSED if widths[slot.molecule] < 0 else ETM)
+    for n, quad in enumerate(layout.edge_molecules):
+        if quad:
+            etms.append(quad)
+            colors.append(CROSSED if widths[n] < 0 else ETM)
     faces = [layout.corners[p] for p in range(mesh.faces)]
 
     ax.add_collection(PolyCollection(vtms, facecolors=VTM, edgecolors=(0.6, 0.5, 0.2),
@@ -98,6 +84,9 @@ def draw(ax, name, objective):
                                      linewidths=0.7))
     ax.add_collection(LineCollection([layout.corners[p] for p in digons], colors="black",
                                      linewidths=1.6))
+    if layout.outline:  # the boundary of the paper
+        ax.add_collection(LineCollection([layout.outline + layout.outline[:1]],
+                                         colors="black", linewidths=0.8, linestyles="dotted"))
     xs = [x for polygon in layout.corners for x, _ in polygon]
     ys = [y for polygon in layout.corners for _, y in polygon]
     pad = 0.05 * max(max(xs) - min(xs), max(ys) - min(ys))

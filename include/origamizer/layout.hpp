@@ -184,7 +184,41 @@ struct Layout {
   /// The largest distance between a side of a vertex-tucking molecule as
   /// placed and as TVCG10 Eq. 2 and 3 prescribe it.
   double closure_error = 0;
+  /// The boundary of the paper, counterclockwise: for each boundary vertex in
+  /// order along the boundary, its copies in the digon before and after its
+  /// boundary molecule. Between those two runs the boundary molecule's side;
+  /// from one boundary vertex to the next, a digon. Empty without digons.
+  std::vector<Point2> outline;
+  /// Every edge-tucking molecule as a quadrilateral A0 B0 B1 A1 (the legs in
+  /// the polygons before and after it, counterclockwise around its vertex
+  /// i), indexed by molecule; empty for boundary molecules.
+  std::vector<std::vector<Point2>> edge_molecules;
+  /// Every vertex-tucking molecule, its corners counterclockwise.
+  std::vector<std::vector<Point2>> vertex_molecules;
 };
+
+/// Whether a layout is a crease pattern on convex paper without overlap
+/// (TVCG10 Sec. 4.2.1): with a convex outline, the molecule mesh cannot
+/// overlap unless a cell intersects itself or flips, so it is enough that
+/// every molecule is a convex polygon with nonnegative area. T4 to T8
+/// guarantee this; the check verifies it on the placed polygons.
+struct OverlapReport {
+  /// The smallest signed area of an edge- or vertex-tucking molecule.
+  double smallest_area = 0;
+  /// The most negative turning angle at a corner of a molecule or of the
+  /// outline (a reflex corner), or 0 if there is none. Corners on sides of
+  /// zero length are skipped.
+  double reflex_turn = 0;
+  /// The total turning of the outline: 2 pi for a simple convex outline.
+  double outline_turning = 0;
+  /// The areas of the faces and molecules minus the area of the outline,
+  /// relative to the outline's area (Green's theorem makes it vanish for any
+  /// closed molecule mesh, so it checks the outline and the cells).
+  double area_mismatch = 0;
+  bool valid = false;  ///< no overlap: all of the above within tolerance
+};
+
+OverlapReport check_overlap(const MoleculeMesh& mesh, const Layout& layout);
 
 /// Places the polygons from the angles and widths (TVCG10 Sec. 3 and 4.1):
 /// the first face at its own coordinates, then every polygon across an edge
@@ -223,6 +257,9 @@ struct Mapping {
   std::vector<double> theta;  ///< from the last attempt that got past the rotation step
   std::vector<double> w;      ///< its widths, negative ones included if infeasible
   std::vector<MappingAttempt> attempts;
+  /// The placed polygons, when the mapping is feasible; map_surface checks
+  /// that they close and do not overlap.
+  Layout layout;
 };
 
 /// The two-step mapping with its fallbacks (TVCG10 Sec. 6, Algorithm 1, as
