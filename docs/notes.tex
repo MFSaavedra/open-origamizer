@@ -29,7 +29,7 @@
 
 \title{Open Origamizer: design notes}
 \author{Open Origamizer project}
-\date{23 November 2026}
+\date{24 November 2026}
 
 \begin{document}
 \maketitle
@@ -37,7 +37,7 @@
 \begin{abstract}
 Running notes on design decisions that go beyond the papers, one section per
 milestone. Notes on the papers themselves are in \texttt{tvcg2010-notes}. This
-version covers M1: preparing the input mesh and cutting it into a disk.
+version covers M1 (preparing the input mesh and cutting it into a disk) and the decisions made so far for M2 (layout).
 \end{abstract}
 
 \section{M1: preparing and cutting the mesh}
@@ -204,7 +204,101 @@ is not committed: the Stanford terms allow research use and free
 redistribution but not commercial use without permission, which does not fit a
 GPL repository.
 
+\section{M2: layout}
+
+Code: \texttt{src/detail/quadratic\_program.*} so far. This section records
+the decisions as they are made; equation tags T1 to T19 refer to
+\texttt{tvcg2010-notes}.
+
+\subsection{Solver}
+
+Both mapping steps are linear constraint problems apart from T19, so they are
+solved as linear or quadratic programs rather than by the paper's projected
+gradient descent (TVCG10 Sec.~6.2 and~6.3). A solver gives exact answers to
+its tolerance and can prove that no solution exists, which tells the pipeline
+when to split edges or remap; a penalty method only shows a penalty that stops
+decreasing.
+
+The user first preferred CGAL's exact LP/QP solver, to avoid a new dependency.
+On synthetic problems shaped like the translation step (sparse equality rows,
+two per vertex; every width in two vertices; widths at least 0.01) it was far
+too slow:
+
+\begin{center}
+\small
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+Problem & variables & rows & CGAL (exact) & HiGHS \\
+\midrule
+cube-sized & 30 & 24 & 0.05\,s & 0.009\,s \\
+torus-sized & 300 & 220 & over 10\,min (stopped) & 0.009\,s \\
+bunny-sized & 600 & 480 & not run & 0.02\,s \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+CGAL's solver needs exact arithmetic (with floating point it aborts on its own
+basis-inverse check), and its documentation targets problems with few
+variables or few constraints. We therefore use HiGHS~\cite{highs}, MIT
+licensed, pinned at v1.15.1 and built from source by CMake (about 100\,s on a
+clean build). It is called through a small private wrapper, so its types do
+not appear in public headers.
+
+\subsection{Objectives}
+
+The constraints of each step leave freedom, so each step also optimizes
+something. Strict inequalities become margins: T6 becomes
+$|\theta(i,j)| \le \pi - \epsilon_\theta$ and T8 becomes
+$0 \le \Theta_m \le \pi - \epsilon_\Theta$, with
+$\epsilon_\theta = \epsilon_\Theta = 10^{-3}$ by default.
+
+\paragraph{Rotation step.} Minimize $\sum \theta_n^2$ over the edge-tucking
+molecules, subject to T15 ($C_\theta\boldsymbol\theta = \mathbf g$), T4, T6,
+and T8. The paper starts its descent from the minimum-norm solution
+$C_\theta^+\mathbf g$; this picks the feasible angles closest to rectangular
+tucks. Boundary molecules are left out of the sum, since T4 keeps them at or
+above~$\pi$. If the program is infeasible, a second program minimizes the
+squared violations of the inequalities, to report where they fail.
+
+\paragraph{Translation step, objective A (minimum width).} Minimize
+$\sum_n w_n$ subject to T17 ($C_w\mathbf w = \mathbf b$) and
+$w_n \ge w_{\min}$ for every molecule (T5 and T7 with a margin), a linear
+program. $w_{\min}$ defaults to $0.01\,\ell_{\mathrm{ave}}$, a hundredth of the
+mean edge length; for fabrication it is the smallest gap that can be made,
+which is OriStitch's minimum separation as a hard bound.
+
+\paragraph{Translation step, objective B (the paper's penalty).} TVCG10
+Sec.~6.3 minimizes $E_w = c_0E_{(5,7)} + c_1E_{(19)} + c_2|\Delta\mathbf w|^2$.
+We solve it in two phases. Phase~1 minimizes $E_{(5,7)} = \sum_n s_n^2$ with
+slack variables, $w_n + s_n \ge 0$ and $s_n \ge 0$, subject to T17; its
+optimum is zero exactly when T5 and T7 can hold. If it is zero, phase~2 finds
+the widths closest to a reference, $\min |\mathbf w - \mathbf w_{\mathrm{ref}}|^2$
+subject to T17 and $\mathbf w \ge 0$, where $\mathbf w_{\mathrm{ref}}$ is the
+paper's starting point $C_w^+\mathbf b$ by default, or widths requested by the
+user (the role of the $c_2$ term). Otherwise phase~1's solution is returned
+with its violations reported, as the paper's penalty would leave them. The
+$c_1E_{(19)}$ term (weight $\ell_{\mathrm{ave}}^2$) joins once T19 is
+implemented.
+
+\subsection{Defaults accepted by the user}
+
+\begin{itemize}[nosep]
+  \item Boundary molecules follow our reading in \texttt{tvcg2010-notes}
+    (Sec.~4): one per boundary vertex, standing for the outside of the paper,
+    with the two boundary edges as its legs. The extra molecules that TVCG10
+    Sec.~5.1 adds along the boundary are an option, first tested on a single
+    triangle and a $2\times2$ grid.
+  \item Convex faces stay whole. If the cube's quadrilaterals cannot be laid
+    out, triangulating faces, as TVCG10 does by default, is the fallback.
+  \item 2D conditions come first (T1 to T9, T19, edge splitting); the tuck
+    proxy and the 3D conditions come last.
+\end{itemize}
+
 \begin{thebibliography}{9}
+\bibitem{highs}
+Q.~Huangfu and J.~A.~J. Hall. Parallelizing the dual revised simplex method.
+\emph{Mathematical Programming Computation} 10:119-142, 2018. Software:
+HiGHS, \url{https://highs.dev}.
 \bibitem{tvcg10}
 T.~Tachi. Origamizing polyhedral surfaces. \emph{IEEE Transactions on
 Visualization and Computer Graphics} 16(2):298-311, 2010.

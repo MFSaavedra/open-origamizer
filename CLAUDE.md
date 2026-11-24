@@ -51,8 +51,11 @@ Settled in session 1 (2026-11-23):
 - **Clean side** (2026-11-23): face normals point to the clean side and tucks go behind. Closed meshes are oriented outward, so tucks go inside; meshes with boundary keep their orientation (TVCG10 Fig. 20).
 - **Test data** (2026-11-23): the Stanford bunny is generated locally by `examples/meshes/fetch_bunny.py` and never committed, because the Stanford terms forbid commercial use without permission.
 
+- **M2 solver** (2026-11-24): HiGHS v1.15.1 (MIT), fetched and built from source by CMake at that pinned tag: static, not sanitized, its warnings not fatal. The user first preferred CGAL's exact LP/QP solver, but on synthetic problems shaped like the translation step it took 0.05 s at 30 variables and over 10 minutes at 300 (exact arithmetic; with floating point it aborts), while HiGHS took 0.01 to 0.02 s up to 600 variables. HiGHS also beats the paper's projected gradient descent: it proves infeasibility and solves both objectives directly. v1.15.1 rather than v1.16.0 because v1.16.0 was 13 days old.
+- **M2 objectives** (2026-11-24): implement both, selectable: (A) minimize the total tuck width subject to a minimum width, an LP that turns OriStitch's minimum separation into a hard bound; (B) the paper's penalty (TVCG10 Sec. 6.3) as quadratic programs. Exact definitions and default parameters are in the M2 section of `docs/notes.tex`.
+- **M2 defaults** (2026-11-24, accepted by the user as proposed): boundary molecules follow our Gauss-Bonnet-consistent reading (TVCG10 notes, Sec. 4), with the extra boundary molecules of TVCG10 Sec. 5.1 as an option; convex faces stay whole, with triangulation as a fallback if the cube's quadrilaterals cannot be laid out; 2D conditions first (T1 to T9, T19, edge splitting), the tuck proxy last.
+
 Still open:
-- **M2 optimizer:** the TVCG10 notes (Implementation note "M2, solver choice") propose a linear or quadratic programming solver for the linear parts of both mapping steps instead of the paper's penalty descent. Decide at the start of M2.
 - **Viewer location:** path or URL of the user's Origami Simulator fork (needed by M3).
 - **Open questions in the TVCG10 notes:** seven, listed in their last section. Settle each before the milestone that needs it.
 - **Cut quality:** the automatic cut is only guaranteed valid. Compare cut strategies once M2 can measure layouts (see the M1 remark in `docs/notes.tex`).
@@ -69,6 +72,7 @@ Still open:
 
 - Sessions run in the user's Default cloud environment. It now has unrestricted network access (it was limited to package registries and GitHub when session 1 started), so the TVCG10 author PDF, www.tsg.ne.jp, and arXiv all download. Use `https://` URLs: plain HTTP fails because the container reaches the internet only through the HTTPS proxy.
 - The SoCG17 paper is in `docs/papers/`. The alphaXiv connector also serves arXiv papers.
+- CMake fetches HiGHS from GitHub at configure time (about 20 s) and compiles it with the project (about 100 s more on a clean build); `uv sync` does the same in its own build directory.
 - Every session starts from a fresh container, and neither the C++ dependencies nor TeX are preinstalled. Install them with the apt commands in Commands (about 10 s and 50 s). A setup script could do this automatically, but it would need a separate cloud environment for this repo; none is set up.
 - GitHub refuses pushes from these sessions that add or change files under `.github/workflows/`, because the session token lacks the `workflow` scope. The user adds such files on github.com.
 - Sessions cannot create GitHub repositories or call account-wide GitHub APIs. Repository-scoped calls work once the repo is attached to the session.
