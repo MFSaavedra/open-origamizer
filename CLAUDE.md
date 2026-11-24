@@ -73,7 +73,7 @@ Still open:
 
 - Sessions run in the user's Default cloud environment. It now has unrestricted network access (it was limited to package registries and GitHub when session 1 started), so the TVCG10 author PDF, www.tsg.ne.jp, and arXiv all download. Use `https://` URLs: plain HTTP fails because the container reaches the internet only through the HTTPS proxy.
 - The SoCG17 paper is in `docs/papers/`. The alphaXiv connector also serves arXiv papers.
-- CMake fetches HiGHS from GitHub at configure time (about 20 s) and compiles it with the project (about 100 s more on a clean build); `uv sync` does the same in its own build directory.
+- CMake fetches HiGHS from GitHub at configure time (about 20 s) and compiles it with the project (about 100 s more on a clean build); `uv sync` does the same in its own build directory. On GitHub Actions this makes each C++ job take about 8 minutes instead of 1 to 3 (first measured on run 45304321763). Caching `build/_deps` or using ccache in the workflow would cut it; that needs a workflow edit by the user.
 - Every session starts from a fresh container, and neither the C++ dependencies nor TeX are preinstalled. Install them with the apt commands in Commands (about 10 s and 50 s). A setup script could do this automatically, but it would need a separate cloud environment for this repo; none is set up.
 - GitHub refuses pushes from these sessions that add or change files under `.github/workflows/`, because the session token lacks the `workflow` scope. The user adds such files on github.com.
 - Sessions cannot create GitHub repositories or call account-wide GitHub APIs. Repository-scoped calls work once the repo is attached to the session.
