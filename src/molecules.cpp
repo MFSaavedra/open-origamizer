@@ -97,23 +97,30 @@ MoleculeMesh build_molecule_mesh(const SurfaceMesh& disk, const MoleculeOptions&
         mesh.molecules.size() - mesh.edge_molecules;
   }
 
+  mesh.faces = disk.number_of_faces();
   mesh.stars.resize(t.vertices);
   std::vector<int> appearances(mesh.molecules.size(), 0);
-  const auto edge_slot = [&](Halfedge h, std::size_t v, double sector) {
+  const auto edge_slot = [&](Halfedge h, std::size_t v, double sector, std::size_t polygon) {
     StarSlot slot;
     slot.molecule = edge_molecule[to_size(disk.edge(h))];
     slot.sign = mesh.molecules[slot.molecule].i == v ? 1 : -1;
     slot.sector = sector;
+    slot.polygon = polygon;
     ++appearances[slot.molecule];
     return slot;
+  };
+  const auto digon_of = [&](Halfedge h) {
+    return mesh.faces + edge_molecule[to_size(disk.edge(h))] - mesh.edge_molecules;
   };
   for (const Vertex v : disk.vertices()) {
     VertexStar& star = mesh.stars[to_size(v)];
     star.boundary = disk.is_border(v);
     const std::vector<Halfedge> corners = counterclockwise_corners(disk, v);
     for (const Halfedge h : corners) {
+      const std::size_t face = to_size(disk.face(h));
+      ORIGAMIZER_CHECK(face < mesh.faces, "the disk's face indices are not contiguous");
       if (!disk.is_border(disk.edge(h))) {
-        star.slots.push_back(edge_slot(h, to_size(v), corner_angle(disk, h)));
+        star.slots.push_back(edge_slot(h, to_size(v), corner_angle(disk, h), face));
         continue;
       }
       // The counterclockwise boundary edge. Going on counterclockwise: the
@@ -128,12 +135,15 @@ MoleculeMesh build_molecule_mesh(const SurfaceMesh& disk, const MoleculeOptions&
       mesh.molecules.push_back(molecule);
       appearances.push_back(1);
       if (options.boundary_digons) {
-        star.slots.push_back(edge_slot(h, to_size(v), corner_angle(disk, h)));
+        const Halfedge clockwise = disk.next(corners.front());  // the other boundary edge
+        star.slots.push_back(edge_slot(h, to_size(v), corner_angle(disk, h), face));
         outside.sector = 0;
+        outside.polygon = digon_of(h);
         star.slots.push_back(outside);
-        star.slots.push_back(edge_slot(disk.next(corners.front()), to_size(v), 0));
+        star.slots.push_back(edge_slot(clockwise, to_size(v), 0, digon_of(clockwise)));
       } else {
         outside.sector = corner_angle(disk, h);
+        outside.polygon = face;
         star.slots.push_back(outside);
       }
     }

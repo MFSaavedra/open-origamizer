@@ -23,6 +23,8 @@
 
 \hypersetup{pdftitle={Open Origamizer: design notes}, pdfauthor={Open Origamizer project}}
 
+\newcommand{\VTM}{\mathrm{VTM}}
+
 \theoremstyle{definition}
 \newtheorem{claim}{Claim}
 \newtheorem*{remark}{Remark}
@@ -206,10 +208,10 @@ GPL repository.
 
 \section{M2: layout}
 
-Code so far: \texttt{molecules.hpp}, \texttt{layout.hpp}, and the private
-solver wrapper \texttt{quadratic\_program}. This section records the
-decisions as they are made; equation tags T1 to T19 refer to
-\texttt{tvcg2010-notes}.
+Code so far: \texttt{molecules.hpp}, \texttt{layout.hpp} (rotation step,
+translation step, reconstruction), and the private solver wrapper
+\texttt{quadratic\_program}. This section records the decisions as they are
+made; equation tags T1 to T19 refer to \texttt{tvcg2010-notes}.
 
 \subsection{Molecule mesh}
 
@@ -317,6 +319,47 @@ licensed, pinned at v1.15.1 and built from source by CMake (about 100\,s on a
 clean build). It is called through a small private wrapper, so its types do
 not appear in public headers.
 
+\subsection{Solver accuracy: polishing and a KKT check}
+
+HiGHS sends quadratic programs to its active-set solver, which adds $10^{-7}$
+to the diagonal of the Hessian (option \texttt{qp\_regularization\_value})
+and stops at hard-coded thresholds, so its optima are accurate to about
+$10^{-8}$. That noise matters here because the exact optima have structure.
+On the cube the exact rotation angles are multiples of $\pi/10$, and HiGHS
+returned, for example, $-0.099999999\,\pi$ and $1.5\times10^{-8}\,\pi$ for
+$-0.1\,\pi$ and~$0$. In the translation rows such angles give coefficients of
+$2\times10^{-8}$ where the exact value is~0, and exact dependencies between
+rows become near-dependencies (the smallest singular value of the cylinder's
+$C_w$ was $2.7\times10^{-9}$). This did real damage downstream: objective~A
+called the cube feasible, with widths near $10^8$ along a direction that only
+the noise opened; HiGHS's simplex stalled on the cube's phase-1 program with a
+dual infeasibility of $2.8\times10^{-7}$; and its QP solver returned, on the
+cylinder's phase~2, a point it called optimal that fails the optimality
+conditions. Two measures in the wrapper now cover every program:
+\begin{itemize}[nosep]
+  \item \emph{Polishing.} HiGHS's basis status gives the active set: the
+    variables at a bound and the rows at a bound (equality rows always count).
+    The wrapper fixes those variables, keeps those rows as equations, and
+    solves the KKT system of what remains,
+    $D_{FF}x_F - A_{RF}^\top y_R = -c_F$ and $A_{RF}x_F = b_R - A_{RX}x_X$,
+    with a sparse QR (Eigen), accepting the solve only if its residual is
+    below $10^{-9}$. This is the polishing step of solvers such as OSQP. The
+    cube's angles then come out as multiples of $\pi/10$ to within
+    $10^{-16}$, and the cylinder's as exactly $0$, $\pi$, and $3\pi/2$.
+  \item \emph{KKT check.} A point counts as optimal only if it satisfies the
+    KKT conditions, checked independently of HiGHS: primal feasibility, and
+    with $z = Dx + c - A^\top y$, every multiplier of the right sign at its
+    bound and zero away from it (relative tolerance $10^{-6}$). The polished
+    point is checked first, then HiGHS's own; if neither passes, the solve
+    fails with a message instead of returning a wrong optimum.
+\end{itemize}
+Two smaller rules: the wrapper drops matrix entries of magnitude at most
+$10^{-9}$ (HiGHS's \texttt{small\_matrix\_value}; HiGHS drops them too, but
+reports a warning, which the wrapper treats as a rejection), and the
+translation step works in units of $\ell_{\mathrm{ave}}$, so that the solver's
+absolute tolerances ($10^{-7}$) stay small next to the widths on meshes of any
+size.
+
 \subsection{Objectives}
 
 The constraints of each step leave freedom, so each step also optimizes
@@ -330,8 +373,9 @@ molecules, subject to T15 ($C_\theta\boldsymbol\theta = \mathbf g$), T4, T6,
 and T8. The paper starts its descent from the minimum-norm solution
 $C_\theta^+\mathbf g$; this picks the feasible angles closest to rectangular
 tucks. Boundary molecules are left out of the sum, since T4 keeps them at or
-above~$\pi$. If the program is infeasible, a second program minimizes the
-squared violations of the inequalities, to report where they fail.
+above~$\pi$. Not implemented yet: if the program is infeasible, a second
+program would minimize the squared violations of the inequalities, to report
+where they fail (so far the program is feasible on every example).
 
 \paragraph{Translation step, objective A (minimum width).} Minimize
 $\sum_n w_n$ subject to T17 ($C_w\mathbf w = \mathbf b$) and
@@ -342,9 +386,19 @@ which is OriStitch's minimum separation as a hard bound.
 
 \paragraph{Translation step, objective B (the paper's penalty).} TVCG10
 Sec.~6.3 minimizes $E_w = c_0E_{(5,7)} + c_1E_{(19)} + c_2|\Delta\mathbf w|^2$.
-We solve it in two phases. Phase~1 minimizes $E_{(5,7)} = \sum_n s_n^2$ with
-slack variables, $w_n + s_n \ge 0$ and $s_n \ge 0$, subject to T17; its
-optimum is zero exactly when T5 and T7 can hold. If it is zero, phase~2 finds
+We solve it in two phases. Phase~1 minimizes the total negative width
+$\sum_n s_n$, with slack variables $w_n + s_n \ge 0$ and $s_n \ge 0$, subject
+to T17: a linear program whose optimum is zero exactly when T5 and T7 can
+hold, which is also exactly when the paper's $E_{(5,7)}$, the sum of the
+squared violations, can vanish. (Changed on 24 November 2026: phase~1 first
+minimized $\sum_n s_n^2$, as accepted. In that program the widths are free
+variables with zero curvature, and HiGHS's QP solver failed on it: an
+``optimum'' with a violation of 3.84 on the cube where the same angles
+admitted nonnegative widths, ``solve error'' on three examples, and an
+internal assertion on the tetrahedron. The change does not alter which
+layouts are feasible; for an infeasible one, phase~1 now returns the widths
+of least total violation instead of least squared violation.) If it is zero,
+phase~2 finds
 the widths closest to a reference, $\min |\mathbf w - \mathbf w_{\mathrm{ref}}|^2$
 subject to T17 and $\mathbf w \ge 0$, where $\mathbf w_{\mathrm{ref}}$ is the
 paper's starting point $C_w^+\mathbf b$ by default, or widths requested by the
@@ -353,6 +407,90 @@ with its violations reported, as the paper's penalty would leave them. The
 $c_1E_{(19)}$ term (weight $\ell_{\mathrm{ave}}^2$) joins once T19 is
 implemented.
 
+\subsection{Translation step: rank and results}
+
+Before solving, the translation step computes the minimum-norm least-squares
+solution of T17 (the paper's starting point $C_w^+\mathbf b$, with Eigen's
+complete orthogonal decomposition) and stops with a message if it leaves a
+residual: then T17 has no solution, nonnegative or not. Otherwise the programs
+get a maximal independent subset of the rows (column-pivoted QR of $C_w^\top$,
+relative threshold $10^{-10}$), because an active-set solver needs independent
+equality rows; the final check of the widths covers every row.
+
+The rows are dependent on four of the seven examples. The paper counts
+$N_e - 2N_v$ degrees of freedom for the widths (TVCG10 Sec.~6.3), which
+assumes full row rank:
+
+\begin{center}
+\small
+\begin{tabular}{@{}lrrrcc@{}}
+\toprule
+Disk & $N_v$ & molecules & rank of $C_w$ & objective A & objective B, phase~1 \\
+\midrule
+tetrahedron & 5 & 12 & 9 & feasible & 0 \\
+cube & 10 & 21 & 20 & infeasible & $11.46\,\ell_{\mathrm{ave}}$ (9 negative) \\
+octahedron & 7 & 18 & 13 & feasible & 0 \\
+saddle & 49 & 144 & 98 & feasible & 0 \\
+torus & 117 & 252 & 233 & feasible & 0 \\
+open cylinder & 26 & 63 & 51 & feasible & 0 \\
+L prism & 14 & 29 & 28 & infeasible & $8.16\,\ell_{\mathrm{ave}}$ (8 negative) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Where the dependency comes from (partial).} Rotate the equations of
+each vertex into the plane of the layout. Around $\VTM(v)$, side $n$ points
+along a unit vector $d_{v,n}$. The two bases of an edge-tucking molecule
+between $u$ and $v$ are parallel, and $\VTM(u)$ and $\VTM(v)$ traverse them in
+opposite directions, so the molecule's width enters the closure of $v$ along
+some $d$ and the closure of $u$ along $-d$. A left null vector therefore
+assigns a vector $y_v$ to each vertex with $(y_v - y_u)\perp d$ for every edge
+or digon molecule between $u$ and $v$, and $y_v \perp d_{v,o}$ for every
+boundary molecule. For a triangulated disk these
+are $3N_v - 3$ conditions on $2N_v$ unknowns, so dependencies are not generic:
+they need special angles, and the four examples with one are highly
+symmetric. On all four, $\mathbf b$ lies in the range of $C_w$ (the step
+succeeds), so the equations are redundant there, not contradictory. Whether
+that holds in general is open; the consistency check above would report it.
+
+\paragraph{Infeasible translations.} On the cube and the L prism no
+nonnegative widths exist for the angles of the rotation step, and the KKT
+check certifies phase~1's optimum (for a linear program, the KKT conditions
+are sufficient). This is the failure of TVCG10 Sec.~6.4: fixing
+$\boldsymbol\theta$ first discards freedom. The paper's remedy is remapping
+(TVCG10 Sec.~6.5): a Tutte embedding of the molecule graph suggests new
+angles, and the rotation step restarts from them. Our rotation step returns
+the feasible angles of least norm and ignores any starting point, so
+remapping needs it to minimize the distance to reference angles instead.
+That is the next step of M2. Both steps take milliseconds: on the torus,
+21\,ms for the rotation step, 21\,ms for objective A, and 45\,ms for
+objective B (Release build).
+
+\subsection{Layout reconstruction}
+
+\texttt{reconstruct\_layout} places the polygons from $\boldsymbol\theta$ and
+$\mathbf w$. Every star slot records the polygon at its sector (faces first,
+then digons), and every edge or digon molecule joins the polygon before it,
+$P_0$, and the one after it, $P_1$, counterclockwise around its vertex~$i$.
+With $u_0$ the unit direction of $P_0$'s copy of the leg $i \to j$, the
+molecule's geometry (\texttt{tvcg2010-notes}, Fig.~1) gives $P_1$'s copy:
+\[
+  A_1 = A_0 + w(i,j)\,R\bigl(\tfrac12\theta + \tfrac12\pi\bigr)u_0, \qquad
+  u_1 = R(\theta)\,u_0, \qquad w(i,j) = w_n + \delta(i,j),
+\]
+with $R$ a counterclockwise rotation. The first face is placed in its own
+coordinates and the others breadth first, digons as segments. Then every side
+of every vertex-tucking molecule is compared with T2 and T3: side $n$ of
+$\VTM(v)$ must have length $w(v,j_n)$ and direction $\varphi_v + \psi_{v,n}$,
+with $\varphi_v$ read off one molecule of the star. Tree molecules pass by
+construction, so the comparison tests the other molecules and the boundary
+molecules, independently of how \texttt{translation\_equations} assembles
+T17. On all seven examples the largest error is below
+$2\times10^{-13}\,\ell_{\mathrm{ave}}$, for the cube and the L prism with
+phase~1's negative widths too, and a perturbed width is rejected. This
+confirms the conventions of T2, T3, and N6, and that the infeasibility above
+is real.
+
 \subsection{Defaults accepted by the user}
 
 \begin{itemize}[nosep]
@@ -360,7 +498,8 @@ implemented.
     (Sec.~4): one per boundary vertex, standing for the outside of the paper,
     with the two boundary edges as its legs. The extra molecules that TVCG10
     Sec.~5.1 adds along the boundary are an option, first tested on a single
-    triangle and a $2\times2$ grid.
+    triangle and a $2\times2$ grid. (Later changed: the digons are on by
+    default; see above.)
   \item Convex faces stay whole. If the cube's quadrilaterals cannot be laid
     out, triangulating faces, as TVCG10 does by default, is the fallback.
   \item 2D conditions come first (T1 to T9, T19, edge splitting); the tuck

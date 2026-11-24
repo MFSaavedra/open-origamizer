@@ -758,8 +758,16 @@ read it before M3.
 \begin{openq}\label{oq:dof}
 Degrees of freedom. Verify $\Nv = \frac13\Ne + 1$ and the full row rank of
 $C_\theta$ and $C_w$ by computing ranks on preprocessed meshes.
-\emph{Status (24 November 2026): half answered.} $C_\theta$ has full row rank on
-every disk (\texttt{notes.tex}, M2); $C_w$ comes with the translation step.
+\emph{Status (24 November 2026): answered.} $\Nv = \frac13\Ne + 1$ holds
+exactly for a triangulated disk with the boundary digons of Sec.~5.1, by
+Euler's formula: with $B$ boundary vertices there are $2\Nv - B - 2$
+triangles, hence $\Nv - B + 2\Nv - B - 3$ interior edges, and with $B$ digon
+and $B$ boundary molecules $\Ne = 3\Nv - 3$. Meshes that keep quadrilaterals
+have fewer molecules. $C_\theta$ has full row rank on every disk. $C_w$ does
+not always: its rank is $2\Nv - 1$ on four of the seven examples (tetrahedron,
+octahedron, torus, open cylinder) and $2\Nv$ on the others, and where it is
+deficient the right side is still in its range, so the widths have one more
+degree of freedom than the paper counts (\texttt{notes.tex}, M2).
 \end{openq}
 
 \begin{openq}\label{oq:alg}

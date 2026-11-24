@@ -43,6 +43,10 @@ struct StarSlot {
   /// alpha(v, j_n): the corner angle of the polygon between slot n-1 and
   /// slot n (TVCG10 Eq. 1); 0 for a digon corner.
   double sector = 0;
+  /// The polygon between slot n-1 and slot n, whose corner `sector` is: a
+  /// face index of the disk, or for a digon, MoleculeMesh::faces plus the
+  /// digon's index among the digon molecules.
+  std::size_t polygon = 0;
 };
 
 /// The molecules around a vertex in counterclockwise order, seen from the
@@ -71,10 +75,13 @@ struct MoleculeMesh {
   std::vector<VertexStar> stars;  ///< one per vertex of the disk
   std::size_t edge_molecules = 0;
   std::size_t digon_molecules = 0;
+  std::size_t faces = 0;  ///< faces of the disk: the polygons before the digons
 
   std::size_t boundary_molecules() const {
     return molecules.size() - edge_molecules - digon_molecules;
   }
+  /// Faces, then one digon per digon molecule.
+  std::size_t polygons() const { return faces + digon_molecules; }
 };
 
 /// Builds the molecule mesh of a topological disk with consistently oriented
