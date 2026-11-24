@@ -32,8 +32,19 @@ import origamizer as og  # noqa: E402
 ROOT = Path(__file__).resolve().parents[1]
 MESHES = ROOT / "examples" / "meshes"
 EXAMPLES = ["tetrahedron", "cube", "octahedron", "l_prism", "torus", "cylinder", "saddle"]
-if (MESHES / "bunny.obj").exists():  # generated locally by fetch_bunny.py
-    EXAMPLES.append("bunny")
+# Sample models of the original Origamizer, when copied locally (see
+# examples/meshes/origamizer/README.md); quad grids need their nonplanar quads
+# triangulated.
+SAMPLES = MESHES / "origamizer"
+for sample in ("bell8x8", "hypar8x8", "test_surface_triang", "bunny170"):
+    if (SAMPLES / f"{sample}.obj").exists():
+        EXAMPLES.append(sample)
+
+
+def load(name):
+    if (SAMPLES / f"{name}.obj").exists():
+        return og.load_mesh(SAMPLES / f"{name}.obj", triangulate_nonplanar=True).mesh
+    return og.load_mesh(MESHES / f"{name}.obj").mesh
 
 FACE = (0.80, 0.81, 0.84)
 ETM = (0.62, 0.78, 0.94)
@@ -43,7 +54,7 @@ VTM = (0.99, 0.90, 0.55)
 
 def layout_of(name, objective):
     """The mapping with its fallbacks (map_surface), then the reconstruction."""
-    mapping = og.map_surface(og.load_mesh(MESHES / f"{name}.obj").mesh, objective=objective)
+    mapping = og.map_surface(load(name), objective=objective)
     last = mapping.attempts[-1]
     how = f"{'tree' if last.cut == og.CutStrategy.TREE else 'minimal'} cut" + (
         ", remapped" if last.remapped else "")

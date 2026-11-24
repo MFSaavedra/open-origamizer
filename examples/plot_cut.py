@@ -28,15 +28,29 @@ import origamizer as og  # noqa: E402
 ROOT = Path(__file__).resolve().parents[1]
 MESHES = ROOT / "examples" / "meshes"
 EXAMPLES = ["tetrahedron", "cube", "octahedron", "l_prism", "torus", "cylinder", "saddle"]
-if (MESHES / "bunny.obj").exists():  # generated locally by fetch_bunny.py
-    EXAMPLES.append("bunny")
-# Elevation, azimuth, and vertical axis (the Stanford bunny is stored with y up).
+# Sample models of the original Origamizer, when copied locally (see
+# examples/meshes/origamizer/README.md); quad grids need their nonplanar quads
+# triangulated.
+SAMPLES = MESHES / "origamizer"
+for sample in ("bell8x8", "hypar8x8", "test_surface_triang", "bunny170"):
+    if (SAMPLES / f"{sample}.obj").exists():
+        EXAMPLES.append(sample)
+
+
+def load(name):
+    if (SAMPLES / f"{name}.obj").exists():
+        return og.load_mesh(SAMPLES / f"{name}.obj", triangulate_nonplanar=True).mesh
+    return og.load_mesh(MESHES / f"{name}.obj").mesh
+
+
+# Elevation, azimuth, and vertical axis (the sample models are stored with y up).
 VIEWS = {"saddle": (35, -60, "z"), "torus": (45, -50, "z"), "cylinder": (25, -60, "z"),
-         "bunny": (15, 25, "y")}
+         "bell8x8": (30, -55, "y"), "hypar8x8": (25, -50, "y"),
+         "test_surface_triang": (30, -55, "y"), "bunny170": (15, 25, "y")}
 
 
 def draw(ax, name):
-    mesh = og.load_mesh(MESHES / f"{name}.obj").mesh
+    mesh = load(name)
     cut = og.cut_to_disk(mesh)
     points = mesh.points
 

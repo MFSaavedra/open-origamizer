@@ -93,6 +93,16 @@ tuck across the face, and the fabrication track wants one rigid tile per facet.
 Straight ($180^\circ$) corners are allowed. The pieces must cover the face
 exactly; this is checked through their areas.
 
+A nonplanar face cannot be a facet at all: no isometric copy of it exists in
+the plane, and it cannot be a rigid tile. The quad grids among the Origamizer
+sample models (M2) have quads off their best-fit plane by 1 to 8\% of their
+diameter. \texttt{PrepareOptions::triangulate\_nonplanar} (added in session~2,
+off by default so that such input is still reported) splits a nonplanar
+quadrilateral into two triangles along the diagonal whose triangles have the
+larger smallest angle, and \texttt{PreparedMesh::triangulated\_faces} lists
+the faces it split. Nonplanar faces with more than four corners remain an
+error.
+
 \subsection{Cutting into a disk}
 
 The molecule mesh lives on a disk, so a surface that is closed, has handles, or
@@ -197,14 +207,18 @@ meshes; for scanned meshes, also consider filling small holes.
 \subsection{Test data}
 
 \texttt{examples/meshes/generate.py} writes the seven example meshes and checks
-their orientation. \texttt{fetch\_bunny.py} downloads the Stanford bunny,
-drops the vertices that no face uses, and simplifies it to at most 374
-triangles with CGAL edge collapses (the size used in SoCG17 Fig.~1). The coarser
-reconstructions in the Stanford archive are not 2-manifolds (duplicate faces,
-edges shared by three faces), so the full one is simplified instead. The bunny
-is not committed: the Stanford terms allow research use and free
-redistribution but not commercial use without permission, which does not fit a
-GPL repository.
+their orientation. In session~1, \texttt{fetch\_bunny.py} downloaded the
+Stanford bunny, dropped the vertices that no face uses, and simplified it to at
+most 374 triangles with CGAL edge collapses (the size used in SoCG17 Fig.~1);
+the coarser reconstructions in the Stanford archive are not 2-manifolds. That
+mesh turned out to have sliver triangles (M2), and in session~2 the user
+replaced it with the sample models of the original Origamizer, so the script
+was removed. The samples live in \texttt{examples/meshes/origamizer/}, which
+git ignores except for a README: they come with Origamizer under its
+non-commercial license, and one of them derives from the Stanford bunny, whose
+terms allow research use but not commercial use without permission. Neither
+fits redistribution in a GPL repository. Tests on them skip when the files are
+absent, as in CI.
 
 \section{M2: layout}
 
@@ -523,11 +537,63 @@ L prism & tree & 11 & 22 & ok & ok \\
 \end{center}
 
 The tree cut worked from each of the first three root faces tried. It costs
-seams: every cut edge becomes two stretches of paper boundary that meet
-again in the folded model, so the cube's 3 seams become 7. The default cut
-stays \texttt{kMinimal}. Between the two lie partial trees (the paper's
-simplification, or pruning the tree while the mapping stays feasible), to
-compare once M4 measures layouts.
+seams (next subsection). The default cut stays \texttt{kMinimal}. Between the
+two lie partial trees (the paper's simplification, or pruning the tree while
+the mapping stays feasible), to compare once M4 measures layouts.
+
+\subsection{Seams: what a cut costs and what it buys}
+
+The paper is one convex sheet, a topological disk. A closed surface is not a
+disk, so it is first cut along mesh edges (M1). Every cut edge then appears
+twice on the boundary of the paper, and folding brings the two copies back
+together along the original edge: a \emph{seam}, where two edges of the paper
+meet with nothing joining them. TVCG10 (Sec.~9.2) notes that these seams stay
+visible on the folded model, along mesh edges. A surface that is already a
+disk needs no cut and has no seams besides its own boundary; that covers the
+saddle and all four Origamizer samples, while the open cylinder needs one path
+between its two boundary loops.
+
+\paragraph{What a cut buys.} Each vertex on the cut becomes a boundary vertex
+of the disk, and its star gains a boundary molecule whose angle
+$\theta(i,o) \ge \pi$ and width $w(i,o) \ge 0$ are free. That angle absorbs
+part of the vertex's angle defect, so the rotation step gets more freedom,
+and the translation step gets more widths. TVCG10 (Sec.~10): ``adding
+boundary edges increases the degrees of freedom and enables a valid
+solution''. Our data agree: the L prism has no layout with its 3-edge minimal
+cut, even after remapping, and has one with the 11-edge tree.
+
+\paragraph{What a cut costs.}
+\begin{itemize}[nosep]
+  \item \emph{Seams to close.} In paper origami a seam is a visible line. In
+    the fabrication track every seam is two fabric edges that must be joined
+    (sewn, glued, or zipped) to close the shape, and the two tiles beside a
+    seam have no fabric hinge between them until then. More seams mean more
+    hand work and a floppier model before closing.
+  \item \emph{Convexity of the paper.} T4 makes the paper boundary turn by
+    $\theta(i,o) - \pi \ge 0$ at every boundary vertex, and the turns add up to
+    exactly $2\pi$ (Gauss-Bonnet). A slit cut into the surface must open into
+    a convex notch. Around a negatively curved vertex it tends to close
+    instead, so cutting through saddles can hurt: on \texttt{bunny170} the
+    whole cut tree raises the rotation step's least violation from 0.209 to
+    2.63\,rad, and relaxing T4 makes it feasible.
+  \item \emph{Boundary vertex-tucking molecules.} Their crease patterns are
+    the open question for M3 (the obtuse Delaunay triangles above), and every
+    cut vertex adds two of them.
+  \item \emph{Paper size.} The direction is not fixed. TVCG10 raised the
+    efficiency of its bunny from 0.007 to 0.172 by moving the cut behind the
+    ears, and observed that a boundary through sharp points helps.
+\end{itemize}
+
+\paragraph{The decision.} \texttt{map\_surface} uses the fewest seams that
+work among the options it knows: the minimal cut, then the same cut
+remapped, and only then the whole tree, which puts every vertex on the cut.
+So seams are added only when needed, but then all at once: the L prism goes
+from 3 to 11 seams, probably more than necessary. Three refinements remain,
+in order of effort: let the user give the cut (already possible through
+\texttt{CutOptions::cut\_edges}, as TVCG10's interface does); prune the tree
+while the mapping stays feasible, which gives a cut with no removable seam at
+the price of one mapping per removed edge; or weight edges by where a seam is
+acceptable (sharp or hidden edges) once M4 can score layouts.
 
 \subsection{Mapping driver}
 
@@ -567,7 +633,19 @@ degenerate to points or segments (on the open cylinder every width is zero:
 the strip needs no tucks). A degenerate cell covers nothing, so the check
 accepts cells whose area is within $10^{-9}\ell_{\mathrm{ave}}^2$ of zero and
 tests convexity only on the others; the first version tested every cell and
-misread the $\pm\pi$ turns of a segment as reflex corners.
+misread the $\pm\pi$ turns of a segment as reflex corners. Sides shorter than
+$10^{-6}\ell_{\mathrm{ave}}$ count as zero length when turns are measured,
+with a tolerance of $10^{-6}$\,rad: on the 16-by-16 sample surface a side of
+$1.5\times10^{-12}\ell_{\mathrm{ave}}$ (a width polished to zero) took its
+direction from rounding noise and showed a turn of $-0.066$.
+
+Zero widths also expose a gap in TVCG10's sufficient condition. With a side
+of zero length, two corners of a vertex-tucking molecule merge, and the
+merged corner turns by the sum of their exterior angles, which nothing bounds
+below $\pi$; T7 and T8 then do not make the molecule convex. With every width
+positive the paper's argument holds, so \texttt{map\_surface} treats an
+overlap as a bug only then, and otherwise records the attempt as failed and
+moves on. Objective~A, with its minimum width, never meets the case.
 
 \subsection{Crease conditions T9 and T19: measurements}
 
@@ -695,6 +773,77 @@ $2\times10^{-13}\,\ell_{\mathrm{ave}}$, for the cube and the L prism with
 phase~1's negative widths too, and a perturbed width is rejected. This
 confirms the conventions of T2, T3, and N6, and that the infeasibility above
 is real.
+
+\subsection{The Origamizer sample models}
+
+The user supplied the sample models of the original Origamizer (made in
+Metasequoia; not committed, see M1): \texttt{bell8x8} and
+\texttt{hypar8x8}, the paper's models (b) ``Gaussian'' and (a) ``hyperbolic
+paraboloid'' with 64 quads and 32 boundary edges each, as in TVCG10 Fig.~23;
+\texttt{test\_surface\_triang}, a wavy 16-by-16 triangle grid; and
+\texttt{bunny170}, a coarse open bunny of 327 triangles with one boundary loop
+of 13 edges. The last is not the paper's bunny, which has 374 triangles and 50
+boundary edges. A fifth upload, \texttt{\_8x8}, is byte for byte the bell. All
+four are disks, so the minimal cut is empty. Results through
+\texttt{map\_surface} (the grids with their nonplanar quads triangulated):
+
+\begin{center}
+\small
+\begin{tabular}{@{}lrlll@{}}
+\toprule
+Model & faces & objective A & objective A with T19 & objective B \\
+\midrule
+bell & 124 & first attempt & first attempt & first attempt \\
+hypar & 128 & first attempt & first attempt & first attempt \\
+test surface & 512 & first attempt & infeasible & remapped \\
+bunny170 & 327 & rotation infeasible & rotation infeasible & rotation infeasible \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Efficiency, with caveats.} Surface area over the area of the
+smallest square containing our outline: 0.61 for the bell and 0.37 for the
+hypar with objective~A (0.61 and 0.33 with T19), against 0.415 and 0.180 in
+TVCG10 Fig.~23. The comparison is not fair to the paper: our grids are
+triangulated, which adds freedom, and our layouts do not yet satisfy the
+tuck-proxy conditions T10 to T14 or include edge splitting, which would widen
+tucks. These numbers are upper bounds for the method as implemented so far.
+
+\paragraph{Three solver and condition findings.} Phase~2 of objective~B fails
+in HiGHS's QP solver on the test surface with the rotation step's angles
+(``solve error'' with presolve on or off and any regularization tried); the
+remapped angles work, so the failure costs one attempt. With T19 enforced,
+objective~B fails on the bell and the hypar although objective~A succeeds:
+the T19 rows depend on the Delaunay apexes of the first solution, and
+objective~B starts from a different one. And on \texttt{bunny170} the rotation
+step is infeasible.
+
+\paragraph{Why \texttt{bunny170} fails.} The elastic program puts the whole
+least violation, 0.209\,rad, on T8's lower bound at vertex~120, an interior
+saddle with angle defect $-1.21$ (429$^\circ$ around it in 8 triangles); the
+mesh has 24 interior vertices with defects below $-0.3$, the worst $-2.19$,
+and no corner below $23^\circ$, so slivers are not the cause. Relaxing one
+family of constraints at a time: without T4, T6, or T8's upper bound it stays
+infeasible; without T8's lower bound ($\Theta \ge 0$) it is feasible. So T1
+and the convexity of vertex-tucking molecules conflict by themselves. Summing
+T1 over a set of vertices cancels the molecules inside the set, so a cluster
+of saddles must route its whole negative defect through the few molecules
+that leave it, while $\Theta \ge 0$ keeps those from turning far enough. A
+slit from the boundary to vertex~120 leaves the violation at 0.209\,rad, and
+the whole cut tree makes it worse (T4, above). TVCG10 calls T7 and T8 ``the
+sufficient condition'', since a vertex-tucking molecule need only be simple,
+but its Voronoi crease pattern needs convexity. Whether the original folds
+this model without a hand-made cut, we cannot tell from the paper.
+
+\paragraph{The boundary structure, rechecked.} TVCG10 Fig.~14 shows, after
+the preprocessing of Sec.~5.1, one edge-tucking molecule and one digon per
+boundary edge and a full vertex-tucking molecule at every boundary vertex,
+four-sided where two faces meet and triangular at a corner, with its outer
+side on the paper boundary. That is exactly our star layout. The counts of
+edge-tucking molecules in Fig.~23 equal interior edges plus three per boundary
+edge for four of the six models, where our layout has two; the figure, not
+the table, matches our reading, and the table may count molecules added by the
+system's automatic edge splitting.
 
 \subsection{Defaults accepted by the user}
 

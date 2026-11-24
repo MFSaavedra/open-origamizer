@@ -736,7 +736,13 @@ slots per star, and the digons provide them; the slot order and sectors are in
 \texttt{notes.tex}, M2. In the 2D layout each digon is a segment glued to its
 face by its edge-tucking molecule; the paper boundary runs along the digons
 and the boundary molecules' sides, and the reconstruction verifies that it is
-convex and that the molecule mesh closes and does not overlap.
+convex and that the molecule mesh closes and does not overlap. Fig.~14, read
+at full resolution, shows exactly this structure: one edge-tucking molecule
+and one digon per boundary edge, and a full vertex-tucking molecule at every
+boundary vertex with its outer side on the paper boundary. The counts of
+edge-tucking molecules in Fig.~23 equal interior edges plus three per boundary
+edge for four of the six models, where this structure has two; they may
+include molecules from the system's automatic edge splitting.
 \end{openq}
 
 \begin{openq}\label{oq:axis}
@@ -782,6 +788,11 @@ Efficiency. TVCG10 measures against the smallest square that contains $P$ and
 reports 0.172 for its bunny; SoCG17 reports 22.3\% for a 374-triangle bunny,
 possibly against the area of $P$ or for a later layout. M4 should report both
 ratios, against $P$ and against the square.
+\emph{Data (24 November 2026):} Fig.~23 lists 0.180 for the hyperbolic
+paraboloid and 0.415 for the Gaussian. On the same sample models, with their
+quads triangulated, our layouts reach 0.37 and 0.61 against the smallest
+square, but without the tuck-proxy conditions or edge splitting, so these are
+upper bounds (\texttt{notes.tex}, M2).
 \end{openq}
 
 \begin{thebibliography}{9}
