@@ -393,4 +393,43 @@ NB_MODULE(_core, m) {
 
   m.def("reconstruct_layout", &og::reconstruct_layout, "disk"_a, "mesh"_a, "theta"_a, "w"_a,
         "Place the polygons from the angles and widths and check that the molecule mesh closes.");
+
+  nb::class_<og::MappingAttempt>(m, "MappingAttempt", "One cut tried by map_surface.")
+      .def_ro("cut", &og::MappingAttempt::cut)
+      .def_ro("remapped", &og::MappingAttempt::remapped)
+      .def_ro("feasible", &og::MappingAttempt::feasible)
+      .def_ro("message", &og::MappingAttempt::message)
+      .def("__repr__", [](const og::MappingAttempt& a) {
+        return std::string("MappingAttempt(") +
+               (a.cut == og::CutStrategy::kMinimal ? "minimal" : "tree") + " cut" +
+               (a.remapped ? ", remapped" : "") + (a.feasible ? ", feasible)" : ", infeasible)");
+      });
+
+  nb::class_<og::Mapping>(m, "Mapping", "A surface mapped to the plane, and how.")
+      .def_ro("feasible", &og::Mapping::feasible)
+      .def_ro("cut", &og::Mapping::cut)
+      .def_ro("molecules", &og::Mapping::molecules)
+      .def_ro("theta", &og::Mapping::theta)
+      .def_ro("w", &og::Mapping::w)
+      .def_ro("attempts", &og::Mapping::attempts);
+
+  m.def(
+      "map_surface",
+      [](const og::SurfaceMesh& mesh, std::vector<og::CutStrategy> cuts, std::size_t root_face,
+         bool boundary_digons, double angle_margin, og::WidthObjective objective,
+         std::optional<double> minimum_width) {
+        og::MappingOptions options;
+        options.cuts = std::move(cuts);
+        options.root_face = root_face;
+        options.molecules.boundary_digons = boundary_digons;
+        options.rotation.angle_margin = angle_margin;
+        options.translation.objective = objective;
+        if (minimum_width) options.translation.minimum_width = *minimum_width;
+        return og::map_surface(mesh, options);
+      },
+      "mesh"_a, nb::kw_only(), "cuts"_a = og::MappingOptions{}.cuts, "root_face"_a = 0,
+      "boundary_digons"_a = true, "angle_margin"_a = og::RotationOptions{}.angle_margin,
+      "objective"_a = og::WidthObjective::kMinimumWidth, "minimum_width"_a = nb::none(),
+      "The two-step mapping with its fallbacks: for each cut in turn, the rotation and "
+      "translation steps, then remapping if the translation fails (TVCG10 Sec. 6).");
 }

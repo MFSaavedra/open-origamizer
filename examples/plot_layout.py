@@ -8,11 +8,11 @@ Run from the repository root:
 
     uv run --group plot python examples/plot_layout.py [--out build/plots] [--objective A|B]
 
-For each mesh: the automatic cut, the rotation step, the translation step, and
-the reconstruction of the molecule mesh (TVCG10 Sec. 3 and 6). Where no
-nonnegative widths exist, the layout uses the widths of objective B's phase 1,
-which solve T17 with some widths negative; where the rotation step itself is
-infeasible, the panel says so. Faces are gray, edge-tucking
+For each mesh: the two-step mapping with its fallbacks (map_surface: minimal
+cut, remapping, then the whole cut tree) and the reconstruction of the
+molecule mesh (TVCG10 Sec. 3 and 6). Each panel names the attempt that
+succeeded; where none does, it says why. With --objective B, a failed mapping
+still shows phase 1's widths, some of them negative. Faces are gray, edge-tucking
 molecules blue (red where the width is negative, so the molecule is crossed),
 vertex-tucking molecules yellow, and digons dark lines. Writes one PNG per
 mesh and an overview, m2-layouts.png.
@@ -42,23 +42,21 @@ VTM = (0.99, 0.90, 0.55)
 
 
 def layout_of(name, objective):
-    """Cut, molecule mesh, both mapping steps, and the reconstruction."""
-    disk = og.cut_to_disk(og.load_mesh(MESHES / f"{name}.obj").mesh).disk
-    mesh = og.build_molecule_mesh(disk)
-    rotation = og.solve_rotation(mesh)
-    if not rotation.feasible:
-        return None, None, None, "rotation step infeasible:\n" + rotation.message.split(", largest")[0]
-    translation = og.solve_translation(mesh, rotation.theta, objective=objective)
-    status = "feasible"
-    if not translation.feasible:
-        translation = og.solve_translation(mesh, rotation.theta,
-                                           objective=og.WidthObjective.PAPER_PENALTY)
-        if not translation.w:
-            raise SystemExit(f"{name}: translation step failed: {translation.message}")
+    """The mapping with its fallbacks (map_surface), then the reconstruction."""
+    mapping = og.map_surface(og.load_mesh(MESHES / f"{name}.obj").mesh, objective=objective)
+    last = mapping.attempts[-1]
+    how = f"{'tree' if last.cut == og.CutStrategy.TREE else 'minimal'} cut" + (
+        ", remapped" if last.remapped else "")
+    if not mapping.w:
+        return None, None, None, f"no layout ({how}):\n" + last.message.split(", largest")[0]
+    mesh = mapping.molecules
+    status = how
+    if not mapping.feasible:
         scale = og.mean_molecule_length(mesh)
-        status = f"negative widths, total {translation.violation / scale:.2f} mean edges"
-    layout = og.reconstruct_layout(disk, mesh, rotation.theta, translation.w)
-    return mesh, translation.w, layout, status
+        negative = sum(max(0.0, -w) for w in mapping.w) / scale
+        status += f": negative widths, total {negative:.2f} mean edges"
+    layout = og.reconstruct_layout(mapping.cut.disk, mesh, mapping.theta, mapping.w)
+    return mesh, mapping.w, layout, status
 
 
 def corner(layout, polygon, vertex):

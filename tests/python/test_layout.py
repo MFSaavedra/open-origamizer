@@ -112,3 +112,15 @@ def test_the_l_prism_needs_the_whole_cut_tree():
         rotation = og.solve_rotation(molecules, reference=og.remap_angles(molecules))
         assert rotation.feasible
         assert og.solve_translation(molecules, rotation.theta).feasible == expected
+
+
+@pytest.mark.parametrize("name", EXAMPLES)
+def test_map_surface(name):
+    mapping = og.map_surface(og.load_mesh(MESHES / f"{name}.obj").mesh)
+    assert mapping.feasible, [a.message for a in mapping.attempts]
+    last = mapping.attempts[-1]
+    assert last.feasible and not any(a.feasible for a in mapping.attempts[:-1])
+    assert (last.cut == og.CutStrategy.TREE) == (name == "l_prism")
+    assert last.remapped == (name == "cube")
+    layout = og.reconstruct_layout(mapping.cut.disk, mapping.molecules, mapping.theta, mapping.w)
+    assert layout.closure_error < 1e-9 * og.mean_molecule_length(mapping.molecules)

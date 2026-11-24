@@ -524,11 +524,24 @@ L prism & tree & 11 & 22 & ok & ok \\
 
 The tree cut worked from each of the first three root faces tried. It costs
 seams: every cut edge becomes two stretches of paper boundary that meet
-again in the folded model, so the cube's 3 seams become 7. The default stays
-\texttt{kMinimal}; a mapping driver should try the minimal cut first, then the
-tree. Between the two lie partial trees (the paper's simplification, or
-pruning the tree while the mapping stays feasible), to compare once M4
-measures layouts.
+again in the folded model, so the cube's 3 seams become 7. The default cut
+stays \texttt{kMinimal}. Between the two lie partial trees (the paper's
+simplification, or pruning the tree while the mapping stays feasible), to
+compare once M4 measures layouts.
+
+\subsection{Mapping driver}
+
+\texttt{map\_surface} runs the steps in the order the results above suggest:
+for each cut in \texttt{MappingOptions::cuts} (minimal, then tree), build the
+molecule mesh, run the rotation and translation steps, and if the translation
+fails, remap and run both again; stop at the first success. It returns the
+cut, the molecule mesh, the angles, the widths, and every attempt with the
+message of the step that failed. With objective~B a failed mapping keeps
+phase~1's widths, so the crossed molecules can be drawn. On the committed
+examples the first attempt succeeds, except on the cube (minimal cut,
+remapped: second attempt) and the L prism (tree cut without remapping: third
+attempt). \texttt{examples/plot\_layout.py} draws the result for every
+example.
 
 \subsection{The Stanford bunny: the rotation step fails}
 

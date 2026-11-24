@@ -13,6 +13,7 @@
 #include <string>
 #include <vector>
 
+#include "origamizer/cut.hpp"
 #include "origamizer/molecules.hpp"
 
 namespace origamizer {
@@ -194,6 +195,44 @@ struct Layout {
 /// closure error exceeds 1e-6 of the mean molecule length.
 Layout reconstruct_layout(const SurfaceMesh& disk, const MoleculeMesh& mesh,
                           const std::vector<double>& theta, const std::vector<double>& w);
+
+struct MappingOptions {
+  /// Cuts to try in order (docs/notes.tex, M2): the fewest seams first, then
+  /// every vertex on the cut.
+  std::vector<CutStrategy> cuts = {CutStrategy::kMinimal, CutStrategy::kTree};
+  std::size_t root_face = 0;
+  MoleculeOptions molecules;
+  RotationOptions rotation;  ///< its reference is replaced when remapping
+  TranslationOptions translation;
+};
+
+/// One cut tried by map_surface, with or without remapping.
+struct MappingAttempt {
+  CutStrategy cut = CutStrategy::kMinimal;
+  bool remapped = false;
+  bool feasible = false;
+  std::string message;  ///< why the attempt failed, from the step that failed
+};
+
+/// A surface mapped to the plane: the cut, the molecule mesh, the angles and
+/// widths, and every attempt that led there.
+struct Mapping {
+  bool feasible = false;
+  CutResult cut;
+  MoleculeMesh molecules;
+  std::vector<double> theta;  ///< from the last attempt that got past the rotation step
+  std::vector<double> w;      ///< its widths, negative ones included if infeasible
+  std::vector<MappingAttempt> attempts;
+};
+
+/// The two-step mapping with its fallbacks (TVCG10 Sec. 6, Algorithm 1, as
+/// adapted in docs/notes.tex, M2). For each cut in turn: build the molecule
+/// mesh, run the rotation step and the translation step, and if the
+/// translation fails, remap (remap_angles) and run both steps again. Stops at
+/// the first attempt with nonnegative widths. If none succeeds, the result
+/// holds the last attempt that reached the translation step, with phase 1's
+/// widths when objective B is used, for diagnosis.
+Mapping map_surface(const SurfaceMesh& mesh, const MappingOptions& options = {});
 
 /// Numerical rank of the matrix of a set of equations (column-pivoted QR, with
 /// a threshold of 1e-10 relative to the largest pivot). Used for the

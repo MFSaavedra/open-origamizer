@@ -788,6 +788,49 @@ Layout reconstruct_layout(const SurfaceMesh& disk, const MoleculeMesh& mesh,
   return layout;
 }
 
+Mapping map_surface(const SurfaceMesh& mesh, const MappingOptions& options) {
+  ORIGAMIZER_CHECK(!options.cuts.empty(), "map_surface needs at least one cut to try");
+  Mapping mapping;
+  for (const CutStrategy strategy : options.cuts) {
+    CutOptions cut_options;
+    cut_options.root_face = options.root_face;
+    cut_options.strategy = strategy;
+    CutResult cut = cut_to_disk(mesh, cut_options);
+    MoleculeMesh molecules = build_molecule_mesh(cut.disk, options.molecules);
+    const bool can_remap = molecules.digon_molecules > 0;
+    for (const bool remap : {false, true}) {
+      if (remap && !can_remap) break;
+      MappingAttempt attempt;
+      attempt.cut = strategy;
+      attempt.remapped = remap;
+      RotationOptions rotation_options = options.rotation;
+      if (remap) rotation_options.reference = remap_angles(molecules);
+      const RotationResult rotation = solve_rotation(molecules, rotation_options);
+      if (!rotation.feasible) {
+        attempt.message = "rotation step: " + rotation.message;
+        mapping.attempts.push_back(attempt);
+        continue;
+      }
+      TranslationResult translation =
+          solve_translation(molecules, rotation.theta, options.translation);
+      attempt.feasible = translation.feasible;
+      attempt.message = "translation step: " + translation.message;
+      mapping.attempts.push_back(attempt);
+      if (translation.feasible || !translation.w.empty() || mapping.w.empty()) {
+        mapping.cut = cut;
+        mapping.molecules = molecules;
+        mapping.theta = rotation.theta;
+        mapping.w = std::move(translation.w);
+      }
+      if (translation.feasible) {
+        mapping.feasible = true;
+        return mapping;
+      }
+    }
+  }
+  return mapping;
+}
+
 std::size_t numerical_rank(const LinearEquations& equations) {
   Eigen::ColPivHouseholderQR<Eigen::MatrixXd> qr(dense_matrix(equations));
   qr.setThreshold(1e-10);

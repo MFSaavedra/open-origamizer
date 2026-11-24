@@ -2,10 +2,12 @@
 // Copyright (C) 2026 Matías Saavedra
 
 #include <Eigen/Dense>
+#include <algorithm>
 #include <array>
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
+#include <map>
 #include <numbers>
 #include <string>
 
@@ -251,6 +253,56 @@ TEST_CASE("the rotation step returns a feasible reference unchanged") {
 TEST_CASE("remapping needs the boundary digons") {
   const auto mesh = molecules_of("cube", {.boundary_digons = false});
   REQUIRE_THROWS_WITH(origamizer::remap_angles(mesh), ContainsSubstring("boundary digons"));
+}
+
+TEST_CASE("map_surface lays out every example, with the fallbacks it needs") {
+  using origamizer::CutStrategy;
+  struct Expected {
+    std::size_t attempts;  // the last one succeeds
+    CutStrategy cut;
+    bool remapped;
+  };
+  const std::map<std::string, Expected> expected = {
+      {"tetrahedron", {1, CutStrategy::kMinimal, false}},
+      {"cube", {2, CutStrategy::kMinimal, true}},
+      {"octahedron", {1, CutStrategy::kMinimal, false}},
+      {"saddle", {1, CutStrategy::kMinimal, false}},
+      {"torus", {1, CutStrategy::kMinimal, false}},
+      {"cylinder", {1, CutStrategy::kMinimal, false}},
+      {"l_prism", {3, CutStrategy::kTree, false}},
+  };
+  for (const char* name : test::kExamples) {
+    INFO(name);
+    const auto mesh = origamizer::prepare_mesh(origamizer::read_obj(test::example_path(name))).mesh;
+    const auto mapping = origamizer::map_surface(mesh);
+    REQUIRE(mapping.feasible);
+    const Expected& e = expected.at(name);
+    REQUIRE(mapping.attempts.size() == e.attempts);
+    REQUIRE(mapping.attempts.back().feasible);
+    REQUIRE(mapping.attempts.back().cut == e.cut);
+    REQUIRE(mapping.attempts.back().remapped == e.remapped);
+    for (std::size_t k = 0; k + 1 < mapping.attempts.size(); ++k) {
+      REQUIRE_FALSE(mapping.attempts[k].feasible);
+    }
+    const auto layout = origamizer::reconstruct_layout(mapping.cut.disk, mapping.molecules,
+                                                       mapping.theta, mapping.w);
+    REQUIRE(layout.closure_error < 1e-9 * origamizer::mean_molecule_length(mapping.molecules));
+  }
+}
+
+TEST_CASE("map_surface keeps a failed attempt's widths for diagnosis") {
+  const auto mesh =
+      origamizer::prepare_mesh(origamizer::read_obj(test::example_path("l_prism"))).mesh;
+  origamizer::MappingOptions options;
+  options.cuts = {origamizer::CutStrategy::kMinimal};
+  options.translation.objective = origamizer::WidthObjective::kPaperPenalty;
+  const auto mapping = origamizer::map_surface(mesh, options);
+  REQUIRE_FALSE(mapping.feasible);
+  REQUIRE(mapping.attempts.size() == 2);
+  REQUIRE(mapping.attempts[1].remapped);
+  REQUIRE_THAT(mapping.attempts[1].message, ContainsSubstring("T5 and T7 cannot hold"));
+  REQUIRE(mapping.w.size() == mapping.molecules.molecules.size());
+  REQUIRE(*std::min_element(mapping.w.begin(), mapping.w.end()) < 0);
 }
 
 TEST_CASE("T17 is dependent but consistent on four examples") {
