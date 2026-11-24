@@ -92,3 +92,23 @@ def test_reconstruction_rejects_inconsistent_widths():
     w[0] += 0.1
     with pytest.raises(og.InvariantError, match="does not close"):
         og.reconstruct_layout(disk, mesh, theta, w)
+
+
+def test_remapping_makes_the_cube_translatable():
+    mesh = og.build_molecule_mesh(disk_of("cube"))
+    plain = og.solve_rotation(mesh)
+    assert not og.solve_translation(mesh, plain.theta).feasible
+    remapped = og.solve_rotation(mesh, reference=og.remap_angles(mesh))
+    assert remapped.feasible
+    assert og.solve_translation(mesh, remapped.theta).feasible
+
+
+def test_the_l_prism_needs_the_whole_cut_tree():
+    # With the minimal cut no nonnegative widths exist, even after remapping;
+    # with every vertex on the cut they do (docs/notes.tex, M2).
+    mesh = og.load_mesh(MESHES / "l_prism.obj").mesh
+    for strategy, expected in (og.CutStrategy.MINIMAL, False), (og.CutStrategy.TREE, True):
+        molecules = og.build_molecule_mesh(og.cut_to_disk(mesh, strategy=strategy).disk)
+        rotation = og.solve_rotation(molecules, reference=og.remap_angles(molecules))
+        assert rotation.feasible
+        assert og.solve_translation(molecules, rotation.theta).feasible == expected

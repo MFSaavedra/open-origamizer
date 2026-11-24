@@ -226,19 +226,28 @@ NB_MODULE(_core, m) {
               "For each disk vertex, the mesh vertex it is a copy of.")
       .def_ro("cut_edges", &og::CutResult::cut_edges, "Mesh edges that were cut, as vertex pairs.");
 
+  nb::enum_<og::CutStrategy>(m, "CutStrategy", "How much of the cut graph to keep.")
+      .value("MINIMAL", og::CutStrategy::kMinimal, "the fewest cut edges")
+      .value("TREE", og::CutStrategy::kTree,
+             "the whole cut tree of TVCG10 Sec. 8.1: every vertex on the cut");
+
   m.def("automatic_cut", &og::automatic_cut, "mesh"_a, "root_face"_a = 0,
+        "strategy"_a = og::CutStrategy::kMinimal,
         "Choose interior edges whose removal leaves a disk (TVCG10 Sec. 8.1).");
   m.def("cut_along", &og::cut_along, "mesh"_a, "edges"_a,
         "Cut the mesh along the given edges; the result must be a disk.");
   m.def(
       "cut_to_disk",
-      [](const og::SurfaceMesh& mesh, std::size_t root_face, std::vector<og::IndexPair> cut_edges) {
+      [](const og::SurfaceMesh& mesh, std::size_t root_face, og::CutStrategy strategy,
+         std::vector<og::IndexPair> cut_edges) {
         og::CutOptions options;
         options.root_face = root_face;
+        options.strategy = strategy;
         options.cut_edges = std::move(cut_edges);
         return og::cut_to_disk(mesh, options);
       },
-      "mesh"_a, nb::kw_only(), "root_face"_a = 0, "cut_edges"_a = std::vector<og::IndexPair>{},
+      "mesh"_a, nb::kw_only(), "root_face"_a = 0, "strategy"_a = og::CutStrategy::kMinimal,
+      "cut_edges"_a = std::vector<og::IndexPair>{},
       "Cut along the given edges, or along the automatic cut when none are given.");
 
   // Molecule mesh (M2) -----------------------------------------------------
@@ -327,14 +336,19 @@ NB_MODULE(_core, m) {
 
   m.def(
       "solve_rotation",
-      [](const og::MoleculeMesh& mesh, double angle_margin) {
+      [](const og::MoleculeMesh& mesh, double angle_margin, std::vector<double> reference) {
         og::RotationOptions options;
         options.angle_margin = angle_margin;
+        options.reference = std::move(reference);
         return og::solve_rotation(mesh, options);
       },
       "mesh"_a, nb::kw_only(), "angle_margin"_a = og::RotationOptions{}.angle_margin,
-      "The rotation step (TVCG10 Sec. 6.2): the least-norm angles that satisfy T15, T4, T6, and "
-      "T8.");
+      "reference"_a = std::vector<double>{},
+      "The rotation step (TVCG10 Sec. 6.2): the angles closest to the reference (default zero) "
+      "that satisfy T15, T4, T6, and T8.");
+  m.def("remap_angles", &og::remap_angles, "mesh"_a,
+        "Remapping (TVCG10 Sec. 6.5): reference angles from a Tutte drawing of the molecule "
+        "graph.");
   m.def("exterior_angles", &og::exterior_angles, "mesh"_a, "theta"_a,
         "TVCG10 Eq. 3: the exterior angle of every vertex-tucking molecule at each slot.");
   m.def("mean_molecule_length", &og::mean_molecule_length, "mesh"_a);

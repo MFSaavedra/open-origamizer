@@ -11,6 +11,7 @@ from os import PathLike
 
 from ._core import (
     CutResult,
+    CutStrategy,
     FaceShape,
     InvariantError,
     Layout,
@@ -43,6 +44,7 @@ from ._core import (
     prepare_mesh,
     read_obj,
     reconstruct_layout,
+    remap_angles,
     simplify_triangle_mesh,
     solve_rotation,
     solve_translation,
@@ -57,6 +59,7 @@ def load_mesh(path: str | PathLike, **options) -> PreparedMesh:
 
 __all__ = [
     "CutResult",
+    "CutStrategy",
     "FaceShape",
     "InvariantError",
     "Layout",
@@ -90,6 +93,7 @@ __all__ = [
     "prepare_mesh",
     "read_obj",
     "reconstruct_layout",
+    "remap_angles",
     "simplify_triangle_mesh",
     "solve_rotation",
     "solve_translation",

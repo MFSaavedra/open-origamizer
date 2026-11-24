@@ -43,6 +43,10 @@ std::vector<std::vector<double>> exterior_angles(const MoleculeMesh& mesh,
 struct RotationOptions {
   /// Margin of the strict inequalities T6 and T8, in radians (docs/notes.tex, M2).
   double angle_margin = 1e-3;
+  /// Angles to stay close to, one per molecule: the objective becomes the
+  /// sum of (theta - reference)^2 over the edge and digon molecules. Empty
+  /// means zero, the least-norm angles. Remapping (remap_angles) supplies one.
+  std::vector<double> reference;
 };
 
 /// An inequality of the rotation step that the least-violation angles break.
@@ -92,6 +96,15 @@ RotationResiduals rotation_residuals(const MoleculeMesh& mesh, const std::vector
 /// violation of the inequalities, to report which ones fail. The solution is
 /// checked against the constraints before it is returned.
 RotationResult solve_rotation(const MoleculeMesh& mesh, const RotationOptions& options = {});
+
+/// Remapping (TVCG10 Sec. 6.5): reference angles for the rotation step from a
+/// crossing-free drawing of the molecule graph, whose nodes are the polygons
+/// (faces and digons), whose edges are the molecules, and whose faces are the
+/// vertex-tucking molecules. Draws the graph by Tutte's barycentric method
+/// with the digons evenly on a circle, measures the exterior angle at every
+/// corner of every vertex-tucking molecule, and fits the angles to them by
+/// least squares through T3. Needs the boundary digons (docs/notes.tex, M2).
+std::vector<double> remap_angles(const MoleculeMesh& mesh);
 
 /// Mean length of the edge and digon molecules: the length scale of a layout,
 /// used for default widths and relative tolerances.

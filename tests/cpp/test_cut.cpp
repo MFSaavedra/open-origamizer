@@ -79,6 +79,30 @@ TEST_CASE("every example mesh cuts into a disk") {
   }
 }
 
+TEST_CASE("the tree strategy keeps the whole cut tree, so every vertex lies on the cut") {
+  for (const char* name : test::kExamples) {
+    INFO(name);
+    const auto mesh = example(name);
+    origamizer::CutOptions options;
+    options.strategy = origamizer::CutStrategy::kTree;
+    const auto cut = cut_to_disk(mesh, options);
+    require_valid_cut(mesh, cut);
+    // The flooding crosses F - 1 edges (a dual spanning tree); all other
+    // interior edges are cut.
+    const auto t = topology(mesh);
+    const std::size_t interior_edges = t.edges - test::boundary_length(mesh);
+    REQUIRE(cut.cut_edges.size() == interior_edges - (t.faces - 1));
+    // Every vertex is on the cut or on the original boundary.
+    const auto degree = cut_degrees(cut.cut_edges);
+    for (const auto v : mesh.vertices()) {
+      REQUIRE((mesh.is_border(v) || degree.count(static_cast<std::size_t>(v)) > 0));
+    }
+    // It contains the minimal cut's essential part only for some meshes, but
+    // it is never shorter.
+    REQUIRE(cut.cut_edges.size() >= cut_to_disk(mesh).cut_edges.size());
+  }
+}
+
 TEST_CASE("closed genus-0 meshes are cut along one path between their most curved vertices") {
   // All tetrahedron vertices are adjacent, so the one-edge path 0-1 is extended to 0-1-2.
   const auto tetrahedron = cut_to_disk(example("tetrahedron"));

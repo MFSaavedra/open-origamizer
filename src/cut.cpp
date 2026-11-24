@@ -132,7 +132,8 @@ std::vector<IndexPair> seed_path(const SurfaceMesh& mesh) {
 
 }  // namespace
 
-std::vector<IndexPair> automatic_cut(const SurfaceMesh& mesh, std::size_t root_face) {
+std::vector<IndexPair> automatic_cut(const SurfaceMesh& mesh, std::size_t root_face,
+                                     CutStrategy strategy) {
   const Topology t = topology(mesh);
   ORIGAMIZER_CHECK(t.components == 1, "only a connected surface can be cut into one disk");
   ORIGAMIZER_CHECK(root_face < t.faces, "root face " + std::to_string(root_face) +
@@ -157,6 +158,15 @@ std::vector<IndexPair> automatic_cut(const SurfaceMesh& mesh, std::size_t root_f
       glued[to_size(mesh.edge(h))] = 1;
       pending.push(g);
     }
+  }
+
+  if (strategy == CutStrategy::kTree) {  // the whole cut tree, unpruned
+    std::vector<IndexPair> tree;
+    for (const Edge e : mesh.edges()) {
+      if (!glued[to_size(e)] && !mesh.is_border(e)) tree.push_back(edge_vertices(mesh, e));
+    }
+    std::sort(tree.begin(), tree.end());
+    return tree;
   }
 
   // Cut graph: the interior edges that were not crossed, plus the boundary,
@@ -287,8 +297,9 @@ CutResult cut_along(const SurfaceMesh& mesh, const std::vector<IndexPair>& edges
 }
 
 CutResult cut_to_disk(const SurfaceMesh& mesh, const CutOptions& options) {
-  return cut_along(
-      mesh, options.cut_edges.empty() ? automatic_cut(mesh, options.root_face) : options.cut_edges);
+  return cut_along(mesh, options.cut_edges.empty()
+                             ? automatic_cut(mesh, options.root_face, options.strategy)
+                             : options.cut_edges);
 }
 
 }  // namespace origamizer

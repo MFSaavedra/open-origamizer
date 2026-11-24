@@ -461,14 +461,74 @@ that holds in general is open; the consistency check above would report it.
 nonnegative widths exist for the angles of the rotation step, and the KKT
 check certifies phase~1's optimum (for a linear program, the KKT conditions
 are sufficient). This is the failure of TVCG10 Sec.~6.4: fixing
-$\boldsymbol\theta$ first discards freedom. The paper's remedy is remapping
-(TVCG10 Sec.~6.5): a Tutte embedding of the molecule graph suggests new
-angles, and the rotation step restarts from them. Our rotation step returns
-the feasible angles of least norm and ignores any starting point, so
-remapping needs it to minimize the distance to reference angles instead.
-That is the next step of M2. Both steps take milliseconds: on the torus,
-21\,ms for the rotation step, 21\,ms for objective A, and 45\,ms for
+$\boldsymbol\theta$ first discards freedom. Remapping (below) repairs the
+cube; the L prism needs a longer cut. Both steps take milliseconds: on the
+torus, 21\,ms for the rotation step, 21\,ms for objective A, and 45\,ms for
 objective B (Release build).
+
+\subsection{Remapping}
+
+TVCG10 Sec.~6.5 changes the angles when the translation step fails: draw the
+molecule graph without crossings by Tutte's barycentric method with a convex
+boundary, measure the angles of that drawing, fit $\boldsymbol\theta$ to them
+through T3 by least squares, and restart the rotation step from there. Our
+reading of the graph: its nodes are the polygons (faces and digons), its edges
+the molecules, and its faces the vertex-tucking molecules. That is the
+homogeneous drawing of TVCG10 Sec.~6.4 with the polygons shrunk to points, so
+a Tutte drawing, whose inner faces are convex, has exterior angles that
+satisfy T8 and close up, and its edge lengths are positive widths for those
+angles. The boundary molecules join consecutive digons and form the outer
+cycle. \texttt{remap\_angles} places the digons evenly on a circle, solves
+the barycentric system with uniform weights (sparse Cholesky), flips the sign
+of every angle if the faces come out clockwise, and fits the angles with a
+sparse QR; it needs the boundary digons.
+
+The paper's rotation step is a descent from the current angles and stops at
+the first feasible point, so a restart stays near the drawing. Ours returns
+the feasible angles closest to a reference, $\sum(\theta_n - \theta_n^{\mathrm{ref}})^2$
+over the edge and digon molecules, with $\boldsymbol\theta^{\mathrm{ref}} = 0$ by
+default and the fitted angles for remapping. The drawing does not depend on
+the angles, so repeating the step gives the same reference; we remap once.
+On the cube the fitted angles miss T15 by 0.18 and the rotation step moves
+them by at most 0.018: the result admits nonnegative widths for every one of
+the six root faces of the automatic cut, against none of the six without
+remapping. The five examples that were already feasible stay feasible. On the
+L prism the fit misses T15 by 0.34 and the inequalities by 0.62, and no root
+face works, with or without remapping.
+
+\subsection{Cut strategy}
+
+M1's automatic cut prunes the cut graph to its essential part, so a closed
+genus-0 surface gets a single short seed path (3 edges on the cube and the L
+prism). TVCG10 Sec.~8.1 instead keeps the cut tree of its flooding,
+simplified by removing ``branches and jags'', and Sec.~10 notes that adding
+boundary edges adds freedom. \texttt{CutStrategy::kTree} keeps the whole cut
+tree, every interior edge the flooding does not cross, which puts every
+vertex on the cut. Results with objective~B (``ok'' means nonnegative widths
+exist; numbers are phase~1's total negative width in mean edge lengths):
+
+\begin{center}
+\small
+\begin{tabular}{@{}llrrll@{}}
+\toprule
+Mesh & cut & edges & boundary vertices & plain & remapped \\
+\midrule
+cube & minimal & 3 & 6 & 11.46 & ok \\
+cube & tree & 7 & 14 & ok & ok \\
+L prism & minimal & 3 & 6 & 8.16 & 8.17 \\
+L prism & minimal, plus paths to its 2 saddles & 4 & 8 & 8.17 & 8.25 \\
+L prism & tree & 11 & 22 & ok & ok \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The tree cut worked from each of the first three root faces tried. It costs
+seams: every cut edge becomes two stretches of paper boundary that meet
+again in the folded model, so the cube's 3 seams become 7. The default stays
+\texttt{kMinimal}; a mapping driver should try the minimal cut first, then the
+tree. Between the two lie partial trees (the paper's simplification, or
+pruning the tree while the mapping stays feasible), to compare once M4
+measures layouts.
 
 \subsection{The Stanford bunny: the rotation step fails}
 
@@ -483,7 +543,9 @@ patterns need, so the paper's rotation step would also stop with a positive
 penalty on this mesh. Extending the cut through the failing vertices (shortest
 paths to the existing cut, the paper's tool of Sec.~8.1) does not help: the
 least violation stays at 0.408\,rad and moves to the copies of the same
-vertices. The mesh is the problem: its smallest corner is $2.7^\circ$, 54
+vertices. Neither does the whole cut tree (175 cut edges, all 374 disk
+vertices on the boundary): the rotation step stays infeasible. The mesh is
+the problem: its smallest corner is $2.7^\circ$, 54
 corners are below $15^\circ$, and one vertex has a defect of $-3.09$\,rad,
 while no committed example has a corner below $32^\circ$. Edge collapses
 optimize shape error, not triangle quality. A better test mesh (isotropic

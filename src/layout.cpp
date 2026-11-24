@@ -4,6 +4,10 @@
 #include "origamizer/layout.hpp"
 
 #include <Eigen/Dense>
+#include <Eigen/OrderingMethods>
+#include <Eigen/SparseCholesky>
+#include <Eigen/SparseCore>
+#include <Eigen/SparseQR>
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -199,10 +203,15 @@ RotationResult solve_rotation(const MoleculeMesh& mesh, const RotationOptions& o
   // Variables: one angle per molecule. Edge and digon molecules obey T6 and
   // enter the objective; boundary molecules obey T4.
   QuadraticProgram program;
-  for (const Molecule& molecule : mesh.molecules) {
-    const bool boundary = molecule.kind == Molecule::Kind::kBoundary;
-    program.cost.push_back(0);
-    program.diagonal.push_back(boundary ? 0 : 2);  // (1/2) * 2 * theta^2
+  ORIGAMIZER_CHECK(options.reference.empty() || options.reference.size() == mesh.molecules.size(),
+                   "the reference needs one angle per molecule");
+  for (std::size_t n = 0; n < mesh.molecules.size(); ++n) {
+    const bool boundary = mesh.molecules[n].kind == Molecule::Kind::kBoundary;
+    const double reference = options.reference.empty() ? 0.0 : options.reference[n];
+    ORIGAMIZER_CHECK(std::isfinite(reference), "the reference angles must be finite");
+    // (1/2) * 2 * theta^2 - 2 * reference * theta = (theta - reference)^2 - reference^2
+    program.cost.push_back(boundary ? 0 : -2 * reference);
+    program.diagonal.push_back(boundary ? 0 : 2);
     program.lower.push_back(boundary ? pi : -pi + margin);
     program.upper.push_back(boundary ? kInfinity : pi - margin);
   }
@@ -236,6 +245,145 @@ RotationResult solve_rotation(const MoleculeMesh& mesh, const RotationOptions& o
   result.feasible = true;
   result.theta = solution.x;
   return result;
+}
+
+std::vector<double> remap_angles(const MoleculeMesh& mesh) {
+  ORIGAMIZER_CHECK(mesh.digon_molecules > 0 && mesh.digon_molecules == mesh.boundary_molecules(),
+                   "remapping needs the boundary digons");
+  const std::size_t polygons = mesh.polygons();
+  constexpr std::size_t kNone = static_cast<std::size_t>(-1);
+
+  // The molecule graph: each molecule joins the polygons before and after its
+  // slot, counterclockwise around a vertex (for a boundary molecule, the two
+  // digons at that vertex).
+  std::vector<std::array<std::size_t, 2>> ends(mesh.molecules.size(), {kNone, kNone});
+  for (const VertexStar& star : mesh.stars) {
+    for (std::size_t n = 0; n < star.slots.size(); ++n) {
+      const StarSlot& slot = star.slots[n];
+      if (slot.sign != 1) continue;  // each molecule once; boundary slots have sign 1
+      ends[slot.molecule] = {slot.polygon, star.slots[(n + 1) % star.slots.size()].polygon};
+    }
+  }
+  std::vector<std::vector<std::size_t>> neighbors(polygons);
+  std::vector<std::vector<std::size_t>> boundary_neighbors(polygons);
+  for (std::size_t m = 0; m < mesh.molecules.size(); ++m) {
+    const auto [a, b] = ends[m];
+    ORIGAMIZER_CHECK(a != kNone && b != kNone, "a molecule has no slot with sign +1");
+    neighbors[a].push_back(b);
+    neighbors[b].push_back(a);
+    if (mesh.molecules[m].kind == Molecule::Kind::kBoundary) {
+      boundary_neighbors[a].push_back(b);
+      boundary_neighbors[b].push_back(a);
+    }
+  }
+
+  // The outer cycle: the digons, linked by the boundary molecules, evenly on
+  // the unit circle.
+  std::vector<std::size_t> cycle = {mesh.faces};
+  for (std::size_t previous = kNone, current = mesh.faces;;) {
+    ORIGAMIZER_CHECK(boundary_neighbors[current].size() == 2,
+                     "a digon does not have two boundary molecules");
+    const std::size_t next = boundary_neighbors[current][0] != previous
+                                 ? boundary_neighbors[current][0]
+                                 : boundary_neighbors[current][1];
+    if (next == cycle.front()) break;
+    cycle.push_back(next);
+    previous = current;
+    current = next;
+  }
+  ORIGAMIZER_CHECK(cycle.size() == mesh.digon_molecules,
+                   "the boundary molecules do not form one cycle through all digons");
+  std::vector<Eigen::Vector2d> position(polygons, Eigen::Vector2d::Zero());
+  std::vector<bool> fixed(polygons, false);
+  for (std::size_t k = 0; k < cycle.size(); ++k) {
+    const double angle = 2 * pi * static_cast<double>(k) / static_cast<double>(cycle.size());
+    position[cycle[k]] = {std::cos(angle), std::sin(angle)};
+    fixed[cycle[k]] = true;
+  }
+
+  // Tutte: every face at the barycenter of its neighbors, a sparse system
+  // L_II x_I = -L_IB x_B with a positive definite matrix.
+  std::vector<std::size_t> unknown(polygons, kNone);
+  std::size_t unknowns = 0;
+  for (std::size_t p = 0; p < polygons; ++p) {
+    if (!fixed[p]) unknown[p] = unknowns++;
+  }
+  if (unknowns > 0) {
+    std::vector<Eigen::Triplet<double>> triplets;
+    Eigen::MatrixXd rhs = Eigen::MatrixXd::Zero(static_cast<Eigen::Index>(unknowns), 2);
+    for (std::size_t p = 0; p < polygons; ++p) {
+      if (fixed[p]) continue;
+      const auto row = static_cast<int>(unknown[p]);
+      triplets.emplace_back(row, row, static_cast<double>(neighbors[p].size()));
+      for (const std::size_t q : neighbors[p]) {
+        if (fixed[q]) {
+          rhs.row(row) += position[q].transpose();
+        } else {
+          triplets.emplace_back(row, static_cast<int>(unknown[q]), -1.0);
+        }
+      }
+    }
+    Eigen::SparseMatrix<double> laplacian(static_cast<Eigen::Index>(unknowns),
+                                          static_cast<Eigen::Index>(unknowns));
+    laplacian.setFromTriplets(triplets.begin(), triplets.end());
+    Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> solver(laplacian);
+    ORIGAMIZER_CHECK(solver.info() == Eigen::Success, "the Tutte system cannot be factored");
+    const Eigen::MatrixXd x = solver.solve(rhs);
+    for (std::size_t p = 0; p < polygons; ++p) {
+      if (!fixed[p]) position[p] = x.row(static_cast<Eigen::Index>(unknown[p])).transpose();
+    }
+  }
+
+  // Exterior angle at every corner of every vertex-tucking molecule. The
+  // circle's direction is arbitrary, so measure all angles and flip their
+  // signs if the faces come out clockwise (their turning then sums to -2 pi).
+  std::vector<std::vector<double>> target(mesh.stars.size());
+  double turning = 0;
+  for (std::size_t v = 0; v < mesh.stars.size(); ++v) {
+    const auto& slots = mesh.stars[v].slots;
+    const std::size_t count = slots.size();
+    for (std::size_t n = 0; n < count; ++n) {
+      const Eigen::Vector2d a = position[slots[previous(n, count)].polygon];
+      const Eigen::Vector2d c = position[slots[n].polygon];
+      const Eigen::Vector2d b = position[slots[(n + 1) % count].polygon];
+      const Eigen::Vector2d u = c - a, w = b - c;
+      target[v].push_back(std::atan2(u.x() * w.y() - u.y() * w.x(), u.dot(w)));
+    }
+    if (v == 0) {
+      for (const double t : target[v]) turning += t;
+    }
+  }
+  if (turning < 0) {
+    for (auto& star : target) {
+      for (double& t : star) t = -t;
+    }
+  }
+
+  // Least squares through T3: Theta(v, n) = theta(v, j_{n-1}) / 2 +
+  // alpha(v, j_n) + theta(v, j_n) / 2 against the measured angles.
+  std::vector<Eigen::Triplet<double>> triplets;
+  std::vector<double> rhs;
+  for (std::size_t v = 0; v < mesh.stars.size(); ++v) {
+    const auto& slots = mesh.stars[v].slots;
+    for (std::size_t n = 0; n < slots.size(); ++n) {
+      const StarSlot& a = slots[previous(n, slots.size())];
+      const StarSlot& b = slots[n];
+      const auto row = static_cast<int>(rhs.size());
+      triplets.emplace_back(row, static_cast<int>(a.molecule), 0.5 * a.sign);
+      triplets.emplace_back(row, static_cast<int>(b.molecule), 0.5 * b.sign);
+      rhs.push_back(target[v][n] - b.sector);
+    }
+  }
+  Eigen::SparseMatrix<double> a(static_cast<Eigen::Index>(rhs.size()),
+                                static_cast<Eigen::Index>(mesh.molecules.size()));
+  a.setFromTriplets(triplets.begin(), triplets.end());
+  a.makeCompressed();
+  Eigen::SparseQR<Eigen::SparseMatrix<double>, Eigen::COLAMDOrdering<int>> qr(a);
+  ORIGAMIZER_CHECK(qr.info() == Eigen::Success, "the remapping least squares failed");
+  const Eigen::VectorXd theta = qr.solve(
+      Eigen::Map<const Eigen::VectorXd>(rhs.data(), static_cast<Eigen::Index>(rhs.size())));
+  ORIGAMIZER_CHECK(theta.allFinite(), "the remapping least squares failed");
+  return {theta.data(), theta.data() + theta.size()};
 }
 
 namespace {

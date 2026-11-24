@@ -218,6 +218,41 @@ TEST_CASE("the cube and the L prism need negative widths with the rotation step'
   }
 }
 
+TEST_CASE("remapping makes the cube translatable") {
+  // TVCG10 Sec. 6.5: angles fitted to a Tutte drawing of the molecule graph,
+  // then the rotation step toward them instead of toward zero.
+  const auto disk = disk_of("cube");
+  const auto mesh = origamizer::build_molecule_mesh(disk);
+  origamizer::RotationOptions options;
+  options.reference = origamizer::remap_angles(mesh);
+  REQUIRE(options.reference.size() == mesh.molecules.size());
+  const auto rotation = origamizer::solve_rotation(mesh, options);
+  REQUIRE(rotation.feasible);
+  REQUIRE(origamizer::rotation_residuals(mesh, rotation.theta, 1e-3).inequalities < 1e-9);
+  const auto a = origamizer::solve_translation(mesh, rotation.theta);
+  INFO(a.message);
+  REQUIRE(a.feasible);
+  const auto layout = origamizer::reconstruct_layout(disk, mesh, rotation.theta, a.w);
+  REQUIRE(layout.closure_error < 1e-9 * origamizer::mean_molecule_length(mesh));
+}
+
+TEST_CASE("the rotation step returns a feasible reference unchanged") {
+  const auto mesh = molecules_of("saddle");
+  const auto plain = origamizer::solve_rotation(mesh);
+  origamizer::RotationOptions options;
+  options.reference = plain.theta;
+  const auto again = origamizer::solve_rotation(mesh, options);
+  REQUIRE(again.feasible);
+  for (std::size_t n = 0; n < plain.theta.size(); ++n) {
+    REQUIRE(again.theta[n] == Approx(plain.theta[n]).margin(1e-9));
+  }
+}
+
+TEST_CASE("remapping needs the boundary digons") {
+  const auto mesh = molecules_of("cube", {.boundary_digons = false});
+  REQUIRE_THROWS_WITH(origamizer::remap_angles(mesh), ContainsSubstring("boundary digons"));
+}
+
 TEST_CASE("T17 is dependent but consistent on four examples") {
   // Rank 2V - 1 on the tetrahedron, octahedron, torus, and cylinder (with b in
   // the range, since the translation step succeeds there); full row rank on

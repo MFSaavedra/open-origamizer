@@ -18,10 +18,24 @@
 
 namespace origamizer {
 
+/// How much of the flooding's cut graph the automatic cut keeps.
+enum class CutStrategy {
+  /// The essential part only, the fewest cut edges: 2g loops for genus g,
+  /// paths between boundary loops, or a seed path on a closed genus-0
+  /// surface (see automatic_cut).
+  kMinimal,
+  /// The whole cut tree: every interior edge the flooding does not cross, as
+  /// in TVCG10 Sec. 8.1 before its simplification. Every vertex then lies on
+  /// the cut, which gives the mapping the most freedom at the cost of the
+  /// most seams (docs/notes.tex, M2).
+  kTree,
+};
+
 struct CutOptions {
   /// Face where the breadth-first flooding starts. TVCG10 Sec. 8.1 lets the
   /// user choose it; it ends up near the middle of the paper.
   std::size_t root_face = 0;
+  CutStrategy strategy = CutStrategy::kMinimal;
   /// Edges to cut, as pairs of vertex indices. When non-empty they replace
   /// the automatic choice and must cut the surface into a disk.
   std::vector<IndexPair> cut_edges;
@@ -51,7 +65,9 @@ struct CutResult {
 /// one-edge slit splits neither end and would be glued back together.
 /// TVCG10 Sec. 10 notes that a boundary through sharp points tends to give
 /// more efficient crease patterns; finer control of the cut is future work.
-std::vector<IndexPair> automatic_cut(const SurfaceMesh& mesh, std::size_t root_face = 0);
+/// With CutStrategy::kTree, the pruning and the seed path are skipped.
+std::vector<IndexPair> automatic_cut(const SurfaceMesh& mesh, std::size_t root_face = 0,
+                                     CutStrategy strategy = CutStrategy::kMinimal);
 
 /// Cuts the mesh along `edges`: every vertex gets one copy per fan of faces
 /// between cut edges. Throws InvariantError if a pair is not an interior edge
