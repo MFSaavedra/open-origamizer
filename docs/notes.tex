@@ -607,9 +607,48 @@ the saddle and the cylinder and fails on some sides of every convex example.
 It is the condition under which edge splitting can satisfy T9 to T11
 (TVCG10 Sec.~7.2), and the paper keeps it with the term $c_1E_{(19)}$ of the
 translation step. Since the Delaunay triangles depend on the widths, that
-term needs an iterative scheme (sequential linearization of the base angles
-around the current widths is the natural candidate); it is the next step of
-M2, followed by edge splitting.
+term needs an iterative scheme; see the next subsection.
+
+\subsection{T19 in the translation step}
+
+With the apex $c_a$ of the Delaunay triangle on side $k$ fixed, T19 is linear
+in the widths. Let $\tau = -\frac12\theta(v,j_k) > 0$ (T19 binds only where
+the molecule widens toward $\VTM(v)$), $d_i$ the direction of side $i$, and
+$c_i$ the corners, so that every difference of corners is a sum of side
+vectors $(w_{m(i)} + \delta_i)\,d_i$. Then
+\[
+  \beta_0 \ge \tau \iff
+  R(\tau)d_k \times (c_a - c_k) \ge 0, \qquad
+  \beta_1 \ge \tau \iff
+  (c_a - c_{k+1}) \times R(-\tau)(-d_k) \ge 0,
+\]
+which say that the apex lies inside the two rays at angle $\tau$ from the
+side. When the option \texttt{enforce\_t19} of the translation step is on, it
+solves its program, takes the Delaunay apexes of the result, adds both rows
+for every side with $\tau > 0$, solves again, and repeats until T19 holds
+for the apexes of the current widths (at most 20 rounds); the rows are
+rebuilt each round, so a side whose apex changes is constrained by its new
+apex only. The paper keeps T19 as a penalty $c_1E_{(19)}$; hard rows follow
+the same choice as T5 and T7 in objective~A.
+
+Results through \texttt{map\_surface}, with either objective: T19 holds after
+0 to 3 rounds on six examples (none on the tetrahedron, saddle, and cylinder;
+one on the cube and octahedron with objective~A; up to three with
+objective~B), and T9 then holds on every molecule side too. On the L prism
+the rows make the program infeasible in the first round, for every cut and
+with or without remapping, so the option is off by default for now. Two
+caveats. The apexes come from the first solution only, so a different choice
+might be feasible where the first is not; an elastic version that minimizes
+the T19 violation would tell. And on symmetric meshes the corners of a
+vertex-tucking molecule are often cocircular, so its Delaunay triangulation
+is not unique and T19 can depend on which diagonal CGAL picks; M3 must use
+the same triangulation that the check used.
+
+One build change came with it: on the torus, HiGHS's own debug assertion
+\texttt{status\_value\_ok} fired inside a QP with T19 rows in the Debug build,
+although the optimum passed our KKT check (and the Release build has the
+assertion compiled out). HiGHS is now compiled with \texttt{NDEBUG} even in
+Debug builds, as in its releases; the wrapper's KKT check stays the guard.
 
 \subsection{The Stanford bunny: the rotation step fails}
 

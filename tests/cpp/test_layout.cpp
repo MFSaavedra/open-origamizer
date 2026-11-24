@@ -441,3 +441,40 @@ TEST_CASE("T19 holds on the saddle and the cylinder") {
     }
   }
 }
+
+TEST_CASE("enforcing T19 keeps six examples feasible, with T9 on every molecule side") {
+  for (const char* name : {"tetrahedron", "cube", "octahedron", "saddle", "torus", "cylinder"}) {
+    for (const auto objective :
+         {origamizer::WidthObjective::kMinimumWidth, origamizer::WidthObjective::kPaperPenalty}) {
+      INFO(name << (objective == origamizer::WidthObjective::kMinimumWidth ? ", A" : ", B"));
+      const auto mesh =
+          origamizer::prepare_mesh(origamizer::read_obj(test::example_path(name))).mesh;
+      origamizer::MappingOptions options;
+      options.translation.objective = objective;
+      options.translation.enforce_t19 = true;
+      const auto mapping = origamizer::map_surface(mesh, options);
+      INFO(mapping.attempts.back().message);
+      REQUIRE(mapping.feasible);
+      REQUIRE_THAT(mapping.attempts.back().message, ContainsSubstring("T19 holds"));
+      for (const auto& c : origamizer::crease_conditions(mapping.molecules, mapping.layout,
+                                                         mapping.theta, mapping.w)) {
+        REQUIRE(c.t19);
+        const auto kind =
+            mapping.molecules.molecules[mapping.molecules.stars[c.vertex].slots[c.slot].molecule]
+                .kind;
+        if (kind != Molecule::Kind::kBoundary) REQUIRE(c.t9);
+      }
+    }
+  }
+}
+
+TEST_CASE("the L prism cannot satisfy T19 with any of the driver's attempts") {
+  const auto mesh =
+      origamizer::prepare_mesh(origamizer::read_obj(test::example_path("l_prism"))).mesh;
+  origamizer::MappingOptions options;
+  options.translation.enforce_t19 = true;
+  const auto mapping = origamizer::map_surface(mesh, options);
+  REQUIRE_FALSE(mapping.feasible);
+  REQUIRE(mapping.attempts.size() == 4);
+  REQUIRE_THAT(mapping.attempts.back().message, ContainsSubstring("with T19"));
+}

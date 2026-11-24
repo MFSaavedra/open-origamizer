@@ -140,6 +140,12 @@ struct TranslationOptions {
   /// Objective B: the widths to stay close to, one per molecule. Empty selects
   /// the paper's starting point, the minimum-norm solution of T17.
   std::vector<double> reference;
+  /// Also enforce T19 (TVCG10 Sec. 7.2) on every side where a molecule widens
+  /// toward the vertex-tucking molecule: with the apex of each side's
+  /// Delaunay triangle fixed, T19 is linear in the widths, so the step adds
+  /// those rows, solves again, and repeats until the apexes settle
+  /// (docs/notes.tex, M2).
+  bool enforce_t19 = false;
 };
 
 struct TranslationResult {
@@ -153,6 +159,9 @@ struct TranslationResult {
   /// Objective B: phase 1's smallest total negative width (a length); 0 when
   /// T5 and T7 can hold.
   double violation = 0;
+  /// With enforce_t19: the sides where T19 fails for the returned widths (0
+  /// when feasible).
+  std::size_t t19_failures = 0;
   std::string message;  ///< the solver's status, or why the step failed
 };
 

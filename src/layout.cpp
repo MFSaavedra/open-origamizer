@@ -4,6 +4,7 @@
 #include "origamizer/layout.hpp"
 
 #include <CGAL/Delaunay_triangulation_2.h>
+#include <CGAL/Triangulation_vertex_base_with_info_2.h>
 
 #include <Eigen/Dense>
 #include <Eigen/OrderingMethods>
@@ -505,6 +506,127 @@ TranslationResiduals translation_residuals(const MoleculeMesh& mesh,
   return residuals;
 }
 
+namespace {
+
+constexpr std::size_t kNoApex = static_cast<std::size_t>(-1);
+
+/// For each side k of a convex polygon, from corner k to corner k + 1, the
+/// corner at the apex of its Delaunay triangle (CGAL), or kNoApex where the
+/// side's ends merged or the polygon is degenerate.
+std::vector<std::size_t> delaunay_apexes(const std::vector<Point2>& corners) {
+  using Vb = CGAL::Triangulation_vertex_base_with_info_2<std::size_t, Kernel>;
+  using Tds = CGAL::Triangulation_data_structure_2<Vb>;
+  using Delaunay = CGAL::Delaunay_triangulation_2<Kernel, Tds>;
+  Delaunay delaunay;
+  std::vector<Delaunay::Vertex_handle> handles;
+  for (std::size_t k = 0; k < corners.size(); ++k) {
+    const std::size_t before = delaunay.number_of_vertices();
+    const auto handle = delaunay.insert(corners[k]);
+    if (delaunay.number_of_vertices() > before)
+      handle->info() = k;  // merged corners keep the first
+    handles.push_back(handle);
+  }
+  std::vector<std::size_t> apex(corners.size(), kNoApex);
+  if (delaunay.dimension() < 2) return apex;
+  for (std::size_t k = 0; k < corners.size(); ++k) {
+    const auto ha = handles[k];
+    const auto hb = handles[(k + 1) % corners.size()];
+    Delaunay::Face_handle face;
+    int index = 0;
+    if (ha == hb || !delaunay.is_edge(ha, hb, face, index)) continue;
+    // A side of the convex polygon is a hull edge: one of its two faces is
+    // infinite, the other is its Delaunay triangle.
+    if (delaunay.is_infinite(face)) face = face->neighbor(index);
+    if (delaunay.is_infinite(face)) continue;
+    for (int j = 0; j < 3; ++j) {
+      const auto h = face->vertex(j);
+      if (h != ha && h != hb) apex[k] = h->info();
+    }
+  }
+  return apex;
+}
+
+/// The corners of VTM(v) in its own frame (TVCG10 Eq. 2): corner n, between
+/// slots n - 1 and n, then side n of length w + delta along psi_n.
+std::vector<Point2> vertex_molecule_corners(const MoleculeMesh& mesh, std::size_t v,
+                                            const std::vector<std::vector<double>>& exterior,
+                                            const std::vector<std::vector<double>>& excess,
+                                            const std::vector<double>& w) {
+  const auto& slots = mesh.stars[v].slots;
+  std::vector<Point2> corners = {Point2(0, 0)};
+  double psi = 0, x = 0, y = 0;
+  for (std::size_t n = 0; n + 1 < slots.size(); ++n) {
+    if (n > 0) psi += exterior[v][n];
+    const double length = w[slots[n].molecule] + excess[v][n];
+    x += length * std::cos(psi);
+    y += length * std::sin(psi);
+    corners.emplace_back(x, y);
+  }
+  return corners;
+}
+
+/// T19 as linear rows in the scaled widths, with the Delaunay apexes of the
+/// current widths fixed (docs/notes.tex, M2). For side k of VTM(v) with
+/// tau = -theta(v, j_k) / 2 > 0 and apex a: beta0 >= tau says that
+/// c_a - c_k lies to the left of the ray from c_k at angle tau from the side,
+/// cross(R(tau) d_k, c_a - c_k) >= 0, and beta1 >= tau that c_a - c_k+1 lies
+/// to the right of the ray from c_k+1 at angle tau from the reversed side,
+/// cross(c_a - c_k+1, R(-tau)(-d_k)) >= 0. Both differences are sums of side
+/// vectors (w + delta) d_i, so the rows are linear.
+struct T19Rows {
+  std::vector<std::vector<std::pair<std::size_t, double>>> terms;  ///< (molecule, coefficient)
+  std::vector<double> lower;                                       ///< row >= lower
+  std::size_t failures = 0;  ///< sides where T19 fails for the given widths
+};
+
+T19Rows t19_rows(const MoleculeMesh& mesh, const std::vector<double>& theta,
+                 const std::vector<double>& w, double scale) {
+  const auto exterior = exterior_angles(mesh, theta);
+  const auto excess = width_excess(mesh, theta);
+  T19Rows rows;
+  for (std::size_t v = 0; v < mesh.stars.size(); ++v) {
+    const auto& slots = mesh.stars[v].slots;
+    const std::size_t count = slots.size();
+    const std::vector<Point2> corners = vertex_molecule_corners(mesh, v, exterior, excess, w);
+    const std::vector<std::size_t> apex = delaunay_apexes(corners);
+    std::vector<double> psi(count, 0.0);
+    for (std::size_t n = 1; n < count; ++n) psi[n] = psi[n - 1] + exterior[v][n];
+    for (std::size_t k = 0; k < count; ++k) {
+      if (mesh.molecules[slots[k].molecule].kind == Molecule::Kind::kBoundary) continue;
+      const double tau = -slots[k].sign * theta[slots[k].molecule] / 2;
+      if (tau <= 0) continue;
+      // A degenerate molecule has no Delaunay triangle; take the next corner.
+      const std::size_t a = apex[k] != kNoApex ? apex[k] : (k + 2) % count;
+      const Point2& ck = corners[k];
+      const Point2& ck1 = corners[(k + 1) % count];
+      const Point2& ca = corners[a];
+      const auto angle_at = [](const Point2& p, const Point2& q, const Point2& r) {
+        const Vector2 u = q - p, t = r - p;
+        return std::atan2(std::abs(u.x() * t.y() - u.y() * t.x()), u * t);
+      };
+      if (std::min(angle_at(ck, ck1, ca), angle_at(ck1, ca, ck)) < tau - 1e-9) ++rows.failures;
+      const Vector2 e0(std::cos(psi[k] + tau), std::sin(psi[k] + tau));
+      const Vector2 e1(-std::cos(psi[k] - tau), -std::sin(psi[k] - tau));  // R(-tau)(-d)
+      for (const bool at_start : {true, false}) {
+        std::vector<std::pair<std::size_t, double>> terms;
+        double lower = 0;
+        for (std::size_t i = at_start ? k : (k + 1) % count; i != a; i = (i + 1) % count) {
+          const Vector2 di(std::cos(psi[i]), std::sin(psi[i]));
+          const double c = at_start ? e0.x() * di.y() - e0.y() * di.x()   // cross(e0, d_i)
+                                    : di.x() * e1.y() - di.y() * e1.x();  // cross(d_i, e1)
+          terms.emplace_back(slots[i].molecule, c);
+          lower -= excess[v][i] / scale * c;
+        }
+        rows.terms.push_back(std::move(terms));
+        rows.lower.push_back(lower);
+      }
+    }
+  }
+  return rows;
+}
+
+}  // namespace
+
 TranslationResult solve_translation(const MoleculeMesh& mesh, const std::vector<double>& theta,
                                     const TranslationOptions& options) {
   const std::size_t n = mesh.molecules.size();
@@ -546,67 +668,104 @@ TranslationResult solve_translation(const MoleculeMesh& mesh, const std::vector<
     result.feasible = true;
   };
 
+  // The final program: objective A, or phase 2 of objective B once phase 1
+  // has found nonnegative widths.
+  QuadraticProgram program;
+  double lower = 0;
+  std::string label;
   if (options.objective == WidthObjective::kMinimumWidth) {
     ORIGAMIZER_CHECK(std::isfinite(options.minimum_width), "the minimum width must be finite");
-    const double lower = options.minimum_width < 0 ? 0.01 : options.minimum_width / scale;
-    QuadraticProgram program;
+    lower = options.minimum_width < 0 ? 0.01 : options.minimum_width / scale;
     for (std::size_t k = 0; k < n; ++k) program.add_variable(lower, kInfinity, 1.0);
-    add_equations(program, equations);
-    const detail::QpSolution solution = detail::solve(program);
-    result.message = "objective A: " + solution.message;
-    if (solution.status == detail::SolveStatus::kOptimal) accept(solution.x, lower);
-    return result;
-  }
-
-  // Objective B, phase 1, a linear program: free widths w and slacks s >= 0
-  // with w + s >= 0; minimize the sum of s, the total negative width. It is
-  // zero exactly when the paper's E_(5,7) can vanish. (A sum of squares here
-  // left HiGHS's QP solver with free variables of zero curvature, on which it
-  // failed; docs/notes.tex, M2.)
-  QuadraticProgram phase1;
-  for (std::size_t k = 0; k < n; ++k) phase1.add_variable(-kInfinity, kInfinity, 0.0);
-  for (std::size_t k = 0; k < n; ++k) phase1.add_variable(0.0, kInfinity, 1.0);
-  add_equations(phase1, equations);
-  for (std::size_t k = 0; k < n; ++k) {
-    const std::size_t row = phase1.add_row(0.0, kInfinity);
-    phase1.entries.push_back({row, k, 1.0});
-    phase1.entries.push_back({row, n + k, 1.0});
-  }
-  const detail::QpSolution first = detail::solve(phase1);
-  result.message = "objective B, phase 1: " + first.message;
-  if (first.status != detail::SolveStatus::kOptimal) return result;
-  double negative = 0;
-  for (std::size_t k = n; k < 2 * n; ++k) negative += first.x[k];
-  if (negative > kTolerance) {
-    result.violation = negative * scale;
-    result.w.resize(n);
-    for (std::size_t k = 0; k < n; ++k) result.w[k] = first.x[k] * scale;
-    result.message +=
-        "; T5 and T7 cannot hold (total negative width " + format(result.violation) + ")";
-    return result;
-  }
-
-  // Phase 2: the nonnegative widths closest to the reference.
-  std::vector<double> reference(n);
-  if (options.reference.empty()) {
-    reference.assign(minimum_norm.data(), minimum_norm.data() + minimum_norm.size());
+    label = "objective A";
   } else {
-    ORIGAMIZER_CHECK(options.reference.size() == n, "the reference needs one width per molecule");
-    for (std::size_t k = 0; k < n; ++k) reference[k] = options.reference[k] / scale;
+    // Objective B, phase 1, a linear program: free widths w and slacks s >= 0
+    // with w + s >= 0; minimize the sum of s, the total negative width. It is
+    // zero exactly when the paper's E_(5,7) can vanish. (A sum of squares here
+    // left HiGHS's QP solver with free variables of zero curvature, on which
+    // it failed; docs/notes.tex, M2.)
+    QuadraticProgram phase1;
+    for (std::size_t k = 0; k < n; ++k) phase1.add_variable(-kInfinity, kInfinity, 0.0);
+    for (std::size_t k = 0; k < n; ++k) phase1.add_variable(0.0, kInfinity, 1.0);
+    add_equations(phase1, equations);
+    for (std::size_t k = 0; k < n; ++k) {
+      const std::size_t row = phase1.add_row(0.0, kInfinity);
+      phase1.entries.push_back({row, k, 1.0});
+      phase1.entries.push_back({row, n + k, 1.0});
+    }
+    const detail::QpSolution first = detail::solve(phase1);
+    result.message = "objective B, phase 1: " + first.message;
+    if (first.status != detail::SolveStatus::kOptimal) return result;
+    double negative = 0;
+    for (std::size_t k = n; k < 2 * n; ++k) negative += first.x[k];
+    if (negative > kTolerance) {
+      result.violation = negative * scale;
+      result.w.resize(n);
+      for (std::size_t k = 0; k < n; ++k) result.w[k] = first.x[k] * scale;
+      result.message +=
+          "; T5 and T7 cannot hold (total negative width " + format(result.violation) + ")";
+      return result;
+    }
+    // Phase 2: the nonnegative widths closest to the reference.
+    std::vector<double> reference(n);
+    if (options.reference.empty()) {
+      reference.assign(minimum_norm.data(), minimum_norm.data() + minimum_norm.size());
+    } else {
+      ORIGAMIZER_CHECK(options.reference.size() == n, "the reference needs one width per molecule");
+      for (std::size_t k = 0; k < n; ++k) reference[k] = options.reference[k] / scale;
+    }
+    program.diagonal.assign(n, 2.0);  // (1/2) * 2 * w^2 - 2 ref w  =  |w - ref|^2 - |ref|^2
+    for (std::size_t k = 0; k < n; ++k) {
+      ORIGAMIZER_CHECK(std::isfinite(reference[k]), "the reference widths must be finite");
+      program.cost.push_back(-2.0 * reference[k]);
+      program.lower.push_back(0.0);
+      program.upper.push_back(kInfinity);
+    }
+    label = "objective B, phase 2";
   }
-  QuadraticProgram phase2;
-  phase2.diagonal.assign(n, 2.0);  // (1/2) * 2 * w^2 - 2 ref w  =  |w - ref|^2 - |ref|^2
-  for (std::size_t k = 0; k < n; ++k) {
-    ORIGAMIZER_CHECK(std::isfinite(reference[k]), "the reference widths must be finite");
-    phase2.cost.push_back(-2.0 * reference[k]);
-    phase2.lower.push_back(0.0);
-    phase2.upper.push_back(kInfinity);
+  add_equations(program, equations);
+  const std::size_t base_rows = program.rows();
+  const std::size_t base_entries = program.entries.size();
+  detail::QpSolution solution = detail::solve(program);
+  result.message = label + ": " + solution.message;
+  if (solution.status != detail::SolveStatus::kOptimal) return result;
+  accept(solution.x, lower);
+  if (!options.enforce_t19) return result;
+
+  // T19 with the Delaunay apexes of the current widths fixed; repeat until
+  // the apexes settle (docs/notes.tex, M2).
+  constexpr std::size_t kIterations = 20;
+  for (std::size_t iteration = 0;; ++iteration) {
+    const T19Rows rows = t19_rows(mesh, theta, result.w, scale);
+    result.t19_failures = rows.failures;
+    if (rows.failures == 0) {
+      result.message += "; T19 holds after " + std::to_string(iteration) + " rounds";
+      return result;
+    }
+    if (iteration == kIterations) {
+      result.feasible = false;
+      result.message += "; T19 still fails on " + std::to_string(rows.failures) + " sides after " +
+                        std::to_string(kIterations) + " rounds";
+      return result;
+    }
+    program.row_lower.resize(base_rows);
+    program.row_upper.resize(base_rows);
+    program.entries.resize(base_entries);
+    for (std::size_t r = 0; r < rows.lower.size(); ++r) {
+      const std::size_t row = program.add_row(rows.lower[r], kInfinity);
+      for (const auto& [molecule, value] : rows.terms[r]) {
+        program.entries.push_back({row, molecule, value});
+      }
+    }
+    solution = detail::solve(program);
+    if (solution.status != detail::SolveStatus::kOptimal) {
+      result.feasible = false;
+      result.message +=
+          "; with T19 (round " + std::to_string(iteration + 1) + "): " + solution.message;
+      return result;
+    }
+    accept(solution.x, lower);
   }
-  add_equations(phase2, equations);
-  const detail::QpSolution second = detail::solve(phase2);
-  result.message = "objective B, phase 2: " + second.message;
-  if (second.status == detail::SolveStatus::kOptimal) accept(second.x, 0.0);
-  return result;
 }
 
 namespace {
@@ -911,41 +1070,19 @@ std::vector<SideCondition> crease_conditions(const MoleculeMesh& mesh, const Lay
                                              const std::vector<double>& w) {
   ORIGAMIZER_CHECK(layout.vertex_molecules.size() == mesh.stars.size(),
                    "the layout does not belong to this molecule mesh");
-  using Delaunay = CGAL::Delaunay_triangulation_2<Kernel>;
   const double tiny = 1e-12 * mean_molecule_length(mesh);
   const auto widening = width_excess(mesh, theta);
   std::vector<SideCondition> conditions;
   for (std::size_t v = 0; v < mesh.stars.size(); ++v) {
     const auto& corners = layout.vertex_molecules[v];
     const auto& slots = mesh.stars[v].slots;
-    Delaunay delaunay;
-    std::vector<Delaunay::Vertex_handle> handles;
-    for (const Point2& c : corners) handles.push_back(delaunay.insert(c));
-    if (delaunay.dimension() < 2) continue;  // degenerate: a point or a segment, no triangles
+    const std::vector<std::size_t> apexes = delaunay_apexes(corners);
     for (std::size_t n = 0; n < slots.size(); ++n) {
       // Side n runs from the corner before slot n to the corner after it.
       const Point2& a = corners[n];
       const Point2& b = corners[(n + 1) % corners.size()];
-      if (CGAL::squared_distance(a, b) <= tiny * tiny) continue;
-      Delaunay::Face_handle face;
-      int index = 0;
-      const auto ha = handles[n];
-      const auto hb = handles[(n + 1) % corners.size()];
-      if (ha == hb || !delaunay.is_edge(ha, hb, face, index)) continue;  // merged corners
-      // A side of the convex molecule is a hull edge: one of its two faces is
-      // infinite, the other is its Delaunay triangle.
-      if (delaunay.is_infinite(face)) face = face->neighbor(index);
-      if (delaunay.is_infinite(face)) continue;  // all corners collinear
-      Point2 apex;
-      bool found = false;
-      for (int k = 0; k < 3 && !found; ++k) {
-        const auto h = face->vertex(k);
-        if (h != ha && h != hb && !delaunay.is_infinite(h)) {
-          apex = h->point();
-          found = true;
-        }
-      }
-      if (!found) continue;  // all corners collinear
+      if (CGAL::squared_distance(a, b) <= tiny * tiny || apexes[n] == kNoApex) continue;
+      const Point2& apex = corners[apexes[n]];
       const auto angle_at = [](const Point2& p, const Point2& q, const Point2& r) {
         const Vector2 u = q - p, s = r - p;
         return std::atan2(std::abs(u.x() * s.y() - u.y() * s.x()), u * s);

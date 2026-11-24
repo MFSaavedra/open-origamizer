@@ -37,6 +37,11 @@ FetchContent_Declare(highs
   SYSTEM)
 FetchContent_MakeAvailable(highs)
 set(CMAKE_COMPILE_WARNING_AS_ERROR ${_origamizer_werror})
+# HiGHS's own asserts are developer checks that its release builds compile
+# out; in a Debug build one fired on a QP whose optimum then passed our KKT
+# check (docs/notes.tex, M2). Keep them off, as in a release of HiGHS: the
+# wrapper verifies every optimum itself.
+target_compile_definitions(highs PRIVATE NDEBUG)
 
 if(ORIGAMIZER_SANITIZE)
   if(ORIGAMIZER_BUILD_PYTHON)

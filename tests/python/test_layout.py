@@ -147,3 +147,11 @@ def test_crease_conditions_bindings():
     assert conditions
     for c in conditions:
         assert math.isclose(c.beta0 + c.beta1 + c.phi, math.pi, abs_tol=1e-9)
+
+
+@pytest.mark.parametrize("name", TRANSLATABLE + ["cube"])
+def test_enforce_t19(name):
+    mapping = og.map_surface(og.load_mesh(MESHES / f"{name}.obj").mesh, enforce_t19=True)
+    assert mapping.feasible, mapping.attempts[-1].message
+    conditions = og.crease_conditions(mapping.molecules, mapping.layout, mapping.theta, mapping.w)
+    assert all(c.t19 for c in conditions)

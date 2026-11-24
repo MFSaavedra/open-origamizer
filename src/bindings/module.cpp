@@ -365,21 +365,25 @@ NB_MODULE(_core, m) {
               "One width per molecule; phase 1's widths when objective B is infeasible.")
       .def_ro("violation", &og::TranslationResult::violation,
               "Objective B: the smallest total negative width.")
+      .def_ro("t19_failures", &og::TranslationResult::t19_failures,
+              "With enforce_t19: the sides where T19 fails for the returned widths.")
       .def_ro("message", &og::TranslationResult::message);
 
   m.def(
       "solve_translation",
       [](const og::MoleculeMesh& mesh, const std::vector<double>& theta,
          og::WidthObjective objective, std::optional<double> minimum_width,
-         std::vector<double> reference) {
+         std::vector<double> reference, bool enforce_t19) {
         og::TranslationOptions options;
         options.objective = objective;
         if (minimum_width) options.minimum_width = *minimum_width;
         options.reference = std::move(reference);
+        options.enforce_t19 = enforce_t19;
         return og::solve_translation(mesh, theta, options);
       },
       "mesh"_a, "theta"_a, nb::kw_only(), "objective"_a = og::WidthObjective::kMinimumWidth,
       "minimum_width"_a = nb::none(), "reference"_a = std::vector<double>{},
+      "enforce_t19"_a = false,
       "The translation step (TVCG10 Sec. 6.3) for given angles. minimum_width defaults to 1% of "
       "the mean molecule length; reference (objective B) to the minimum-norm solution of T17.");
 
@@ -453,7 +457,7 @@ NB_MODULE(_core, m) {
       "map_surface",
       [](const og::SurfaceMesh& mesh, std::vector<og::CutStrategy> cuts, std::size_t root_face,
          bool boundary_digons, double angle_margin, og::WidthObjective objective,
-         std::optional<double> minimum_width) {
+         std::optional<double> minimum_width, bool enforce_t19) {
         og::MappingOptions options;
         options.cuts = std::move(cuts);
         options.root_face = root_face;
@@ -461,11 +465,13 @@ NB_MODULE(_core, m) {
         options.rotation.angle_margin = angle_margin;
         options.translation.objective = objective;
         if (minimum_width) options.translation.minimum_width = *minimum_width;
+        options.translation.enforce_t19 = enforce_t19;
         return og::map_surface(mesh, options);
       },
       "mesh"_a, nb::kw_only(), "cuts"_a = og::MappingOptions{}.cuts, "root_face"_a = 0,
       "boundary_digons"_a = true, "angle_margin"_a = og::RotationOptions{}.angle_margin,
       "objective"_a = og::WidthObjective::kMinimumWidth, "minimum_width"_a = nb::none(),
+      "enforce_t19"_a = false,
       "The two-step mapping with its fallbacks: for each cut in turn, the rotation and "
       "translation steps, then remapping if the translation fails (TVCG10 Sec. 6).");
 }
