@@ -83,6 +83,105 @@ RotationResiduals rotation_residuals(const MoleculeMesh& mesh, const std::vector
   return residuals;
 }
 
+namespace {
+
+/// The elastic version of an infeasible rotation program (docs/notes.tex,
+/// M2): the equality rows (T15) stay; every variable bound and inequality row
+/// (T4, T6, T8) gets a slack s >= 0 that widens it on both sides, and the
+/// total slack is minimized, a linear program. Fills in the least-violation
+/// angles and the broken inequalities. Rows after the T15 rows are the T8
+/// rows, star by star and slot by slot, as solve_rotation adds them.
+void least_violation(const MoleculeMesh& mesh, const QuadraticProgram& program,
+                     RotationResult& result) {
+  const std::size_t n = program.variables();
+  const std::size_t equalities = mesh.stars.size();
+  QuadraticProgram elastic;
+  for (std::size_t k = 0; k < n; ++k) elastic.add_variable(-kInfinity, kInfinity, 0.0);
+  for (std::size_t r = 0; r < equalities; ++r) {
+    elastic.add_row(program.row_lower[r], program.row_upper[r]);
+  }
+  for (const auto& e : program.entries) {
+    if (e.row < equalities) elastic.entries.push_back(e);
+  }
+  // A two-sided constraint lo <= q <= hi becomes q + s >= lo and q - s <= hi.
+  const auto relax = [&](const std::vector<QuadraticProgram::Entry>& terms, double lo, double hi) {
+    const std::size_t slack = elastic.add_variable(0.0, kInfinity, 1.0);
+    if (std::isfinite(lo)) {
+      const std::size_t row = elastic.add_row(lo, kInfinity);
+      for (const auto& t : terms) elastic.entries.push_back({row, t.column, t.value});
+      elastic.entries.push_back({row, slack, 1.0});
+    }
+    if (std::isfinite(hi)) {
+      const std::size_t row = elastic.add_row(-kInfinity, hi);
+      for (const auto& t : terms) elastic.entries.push_back({row, t.column, t.value});
+      elastic.entries.push_back({row, slack, -1.0});
+    }
+    return slack;
+  };
+  std::vector<std::size_t> bound_slack(n), row_slack(program.rows(), 0);
+  for (std::size_t k = 0; k < n; ++k) {
+    bound_slack[k] = relax({{0, k, 1.0}}, program.lower[k], program.upper[k]);
+  }
+  std::vector<std::vector<QuadraticProgram::Entry>> rows(program.rows());
+  for (const auto& e : program.entries) rows[e.row].push_back(e);
+  for (std::size_t r = equalities; r < program.rows(); ++r) {
+    row_slack[r] = relax(rows[r], program.row_lower[r], program.row_upper[r]);
+  }
+
+  const detail::QpSolution solution = detail::solve(elastic);
+  if (solution.status != detail::SolveStatus::kOptimal) {
+    result.message += "; the elastic program failed too: " + solution.message;
+    return;
+  }
+  result.theta.assign(solution.x.begin(), solution.x.begin() + static_cast<std::ptrdiff_t>(n));
+  constexpr double kReported = 1e-9;
+  for (std::size_t k = 0; k < n; ++k) {
+    const double amount = solution.x[bound_slack[k]];
+    if (amount <= kReported) continue;
+    RotationViolation violation;
+    violation.kind = mesh.molecules[k].kind == Molecule::Kind::kBoundary
+                         ? RotationViolation::Kind::kT4
+                         : RotationViolation::Kind::kT6;
+    violation.molecule = k;
+    violation.amount = amount;
+    result.violations.push_back(violation);
+  }
+  std::size_t r = equalities;
+  for (std::size_t v = 0; v < mesh.stars.size(); ++v) {
+    for (std::size_t slot = 0; slot < mesh.stars[v].slots.size(); ++slot, ++r) {
+      const double amount = solution.x[row_slack[r]];
+      if (amount <= kReported) continue;
+      RotationViolation violation;
+      violation.kind = RotationViolation::Kind::kT8;
+      violation.vertex = v;
+      violation.slot = slot;
+      violation.amount = amount;
+      result.violations.push_back(violation);
+    }
+  }
+  ORIGAMIZER_CHECK(r == program.rows(), "the T8 rows do not match the stars");
+  std::sort(
+      result.violations.begin(), result.violations.end(),
+      [](const RotationViolation& a, const RotationViolation& b) { return a.amount > b.amount; });
+  for (const RotationViolation& violation : result.violations) result.violation += violation.amount;
+  result.message += "; least total violation " + format(result.violation) + " rad in " +
+                    std::to_string(result.violations.size()) + " inequalities";
+  for (std::size_t k = 0; k < std::min<std::size_t>(3, result.violations.size()); ++k) {
+    const RotationViolation& violation = result.violations[k];
+    result.message += k == 0 ? ", largest: " : ", ";
+    if (violation.kind == RotationViolation::Kind::kT8) {
+      result.message += "T8 at vertex " + std::to_string(violation.vertex) + " slot " +
+                        std::to_string(violation.slot);
+    } else {
+      result.message += std::string(violation.kind == RotationViolation::Kind::kT4 ? "T4" : "T6") +
+                        " at molecule " + std::to_string(violation.molecule);
+    }
+    result.message += " by " + format(violation.amount);
+  }
+}
+
+}  // namespace
+
 RotationResult solve_rotation(const MoleculeMesh& mesh, const RotationOptions& options) {
   const double margin = options.angle_margin;
   ORIGAMIZER_CHECK(margin >= 0 && margin < pi / 4, "the angle margin must be in [0, pi/4)");
@@ -124,6 +223,10 @@ RotationResult solve_rotation(const MoleculeMesh& mesh, const RotationOptions& o
 
   const detail::QpSolution solution = detail::solve(program);
   result.message = solution.message;
+  if (solution.status == detail::SolveStatus::kInfeasible) {
+    least_violation(mesh, program, result);
+    return result;
+  }
   if (solution.status != detail::SolveStatus::kOptimal) return result;
   const RotationResiduals residuals = rotation_residuals(mesh, solution.x, margin);
   ORIGAMIZER_CHECK(residuals.equations < 1e-6 && residuals.inequalities < 1e-6,

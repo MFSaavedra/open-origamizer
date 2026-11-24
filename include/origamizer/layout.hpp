@@ -45,11 +45,31 @@ struct RotationOptions {
   double angle_margin = 1e-3;
 };
 
+/// An inequality of the rotation step that the least-violation angles break.
+struct RotationViolation {
+  enum class Kind {
+    kT4,  ///< theta(i, o) >= pi at a boundary molecule
+    kT6,  ///< |theta| <= pi - margin at an edge or digon molecule
+    kT8,  ///< 0 <= Theta <= pi - margin at a corner of a vertex-tucking molecule
+  };
+  Kind kind = Kind::kT6;
+  std::size_t molecule = 0;  ///< for T4 and T6
+  std::size_t vertex = 0;    ///< for T8: the vertex, and the slot whose corner it is
+  std::size_t slot = 0;
+  double amount = 0;  ///< by how much, in radians
+};
+
 struct RotationResult {
   bool feasible = false;
   /// One angle per molecule: theta(i, j) for its orientation i -> j, or
-  /// theta(i, o) for a boundary molecule. Empty unless feasible.
+  /// theta(i, o) for a boundary molecule. When the step is infeasible, the
+  /// angles of least total violation (T15 still holds), or empty if a star
+  /// has fewer than three slots.
   std::vector<double> theta;
+  /// When infeasible: the least total violation of T4, T6, and T8 (radians),
+  /// and the inequalities those angles break, largest first.
+  double violation = 0;
+  std::vector<RotationViolation> violations;
   std::string message;  ///< the solver's status, or why the step cannot succeed
 };
 
@@ -67,7 +87,9 @@ RotationResiduals rotation_residuals(const MoleculeMesh& mesh, const std::vector
 /// sum of theta^2 over the edge and digon molecules subject to T15, T4, T6,
 /// and T8, with T6 and T8 tightened by the margin (docs/notes.tex, M2). A
 /// star with fewer than three slots makes T1 and T8 contradict each other;
-/// the result then says so without calling the solver. The solution is
+/// the result then says so without calling the solver. If the program is
+/// infeasible, an elastic linear program keeps T15 and minimizes the total
+/// violation of the inequalities, to report which ones fail. The solution is
 /// checked against the constraints before it is returned.
 RotationResult solve_rotation(const MoleculeMesh& mesh, const RotationOptions& options = {});
 

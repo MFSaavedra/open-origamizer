@@ -75,7 +75,7 @@ Still open:
 
 - Sessions run in the user's Default cloud environment. It now has unrestricted network access (it was limited to package registries and GitHub when session 1 started), so the TVCG10 author PDF, www.tsg.ne.jp, and arXiv all download. Use `https://` URLs: plain HTTP fails because the container reaches the internet only through the HTTPS proxy.
 - The SoCG17 paper is in `docs/papers/`. The alphaXiv connector also serves arXiv papers.
-- CMake fetches HiGHS from GitHub at configure time (about 20 s) and compiles it with the project (about 100 s more on a clean build); `uv sync` does the same in its own build directory. On GitHub Actions, compiling HiGHS adds 1.5 to 3 minutes to each job on a cold cache; since 2026-11-24 the workflow compiles through ccache, kept between runs with `actions/cache` (first run 45307715973, cold). The apt step varies far more, from 16 s to 6 minutes between runs (mirror speed), and often dominates the job time. An earlier note here blamed HiGHS alone for jobs of about 8 minutes; that was wrong.
+- CMake fetches HiGHS from GitHub at configure time (about 20 s) and compiles it with the project (about 100 s more on a clean build); `uv sync` does the same in its own build directory. On GitHub Actions, compiling HiGHS adds 1.5 to 3 minutes to each job on a cold cache; since 2026-11-24 the workflow compiles through ccache, kept between runs with `actions/cache`. Measured: on the cold run 45307715973 the C++ builds took 92 to 183 s; on the warm run 45312633322, 22 and 29 s, and the Python build 42 s instead of 123 to 158 s. The apt step varies far more, from 16 s to over 6 minutes between runs, and often dominates the job time: on run 45312633322 the Ubuntu mirror delivered 72.8 kB/s ("Fetched 22.1 MB in 5min 3s"). Caching the downloaded packages would remove that; it needs a workflow edit by the user. An earlier note here blamed HiGHS alone for jobs of about 8 minutes; that was wrong.
 - Every session starts from a fresh container, and neither the C++ dependencies nor TeX are preinstalled. Install them with the apt commands in Commands (about 10 s and 50 s). A setup script could do this automatically, but it would need a separate cloud environment for this repo; none is set up.
 - GitHub refuses pushes from these sessions that add or change files under `.github/workflows/`, because the session token lacks the `workflow` scope. The user adds such files on github.com.
 - Sessions cannot create GitHub repositories or call account-wide GitHub APIs. Repository-scoped calls work once the repo is attached to the session.
@@ -116,7 +116,8 @@ M0 and M1 created the files marked as existing below; the rest is planned.
 │   └── python/              # pytest: bindings and end-to-end runs
 ├── examples/
 │   ├── meshes/              # (exists) generate.py and its OBJ files; fetch_bunny.py (bunny.obj ignored)
-│   └── plot_cut.py          # (exists) renders each example with its cut
+│   ├── plot_cut.py          # (exists) renders each example with its cut
+│   └── plot_layout.py       # (exists) renders each example's 2D layout (M2)
 └── docs/
     ├── papers/              # openly licensed papers only
     ├── tvcg2010-notes.tex   # (exists) and its compiled .pdf
@@ -245,12 +246,13 @@ latexmk -pdf -cd docs/tvcg2010-notes.tex
 latexmk -pdf -cd docs/notes.tex
 ```
 
-Example meshes: regenerate the committed ones, fetch and simplify the bunny (needs network; output not committed), and render every mesh with its cut into `build/plots/`:
+Example meshes: regenerate the committed ones, fetch and simplify the bunny (needs network; output not committed), and render every mesh with its cut, then its 2D layout, into `build/plots/`:
 
 ```bash
 python3 examples/meshes/generate.py
 uv run python examples/meshes/fetch_bunny.py
 uv run --group plot python examples/plot_cut.py
+uv run --group plot python examples/plot_layout.py
 ```
 
 CI status from a session (repository-scoped GitHub calls work; check that the test counts in the log are nonzero, not just that the run is green):

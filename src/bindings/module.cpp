@@ -7,11 +7,13 @@
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/array.h>
 #include <nanobind/stl/filesystem.h>
+#include <nanobind/stl/optional.h>
 #include <nanobind/stl/pair.h>
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/vector.h>
 
 #include <array>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -19,7 +21,9 @@
 
 #include "origamizer/check.hpp"
 #include "origamizer/cut.hpp"
+#include "origamizer/layout.hpp"
 #include "origamizer/mesh.hpp"
+#include "origamizer/molecules.hpp"
 
 namespace nb = nanobind;
 namespace og = origamizer;
@@ -42,6 +46,15 @@ std::vector<og::Point3> to_points(const std::vector<Xyz>& xyz) {
   std::vector<og::Point3> out;
   out.reserve(xyz.size());
   for (const auto& [x, y, z] : xyz) out.emplace_back(x, y, z);
+  return out;
+}
+
+std::vector<std::vector<std::array<double, 2>>> to_xy(
+    const std::vector<std::vector<og::Point2>>& polygons) {
+  std::vector<std::vector<std::array<double, 2>>> out(polygons.size());
+  for (std::size_t p = 0; p < polygons.size(); ++p) {
+    for (const auto& q : polygons[p]) out[p].push_back({q.x(), q.y()});
+  }
   return out;
 }
 
@@ -227,4 +240,143 @@ NB_MODULE(_core, m) {
       },
       "mesh"_a, nb::kw_only(), "root_face"_a = 0, "cut_edges"_a = std::vector<og::IndexPair>{},
       "Cut along the given edges, or along the automatic cut when none are given.");
+
+  // Molecule mesh (M2) -----------------------------------------------------
+
+  nb::enum_<og::Molecule::Kind>(m, "MoleculeKind", "The three kinds of edge-tucking molecules.")
+      .value("EDGE", og::Molecule::Kind::kEdge, "between the faces of an interior edge")
+      .value("DIGON", og::Molecule::Kind::kDigon,
+             "between a boundary face and the digon on its edge (TVCG10 Sec. 5.1)")
+      .value("BOUNDARY", og::Molecule::Kind::kBoundary,
+             "the outside of the paper at a boundary vertex");
+
+  nb::class_<og::Molecule>(m, "Molecule", "An edge-tucking molecule, oriented from vertex i.")
+      .def_ro("kind", &og::Molecule::kind)
+      .def_ro("i", &og::Molecule::i)
+      .def_ro("j", &og::Molecule::j, "The other vertex; equals i for a boundary molecule.")
+      .def_ro("length", &og::Molecule::length)
+      .def("__repr__", [](const og::Molecule& molecule) {
+        const char* kind = molecule.kind == og::Molecule::Kind::kEdge    ? "edge"
+                           : molecule.kind == og::Molecule::Kind::kDigon ? "digon"
+                                                                         : "boundary";
+        return std::string("Molecule(") + kind + ", " + std::to_string(molecule.i) + " -> " +
+               std::to_string(molecule.j) + ")";
+      });
+
+  nb::class_<og::StarSlot>(m, "StarSlot", "One molecule in the star of a vertex.")
+      .def_ro("molecule", &og::StarSlot::molecule)
+      .def_ro("sign", &og::StarSlot::sign, "theta(v, j_n) = sign * theta of the molecule.")
+      .def_ro("sector", &og::StarSlot::sector,
+              "Corner angle of the polygon between the previous slot and this one.")
+      .def_ro("polygon", &og::StarSlot::polygon,
+              "That polygon: a face, or for a digon, faces plus its digon index.");
+
+  nb::class_<og::VertexStar>(m, "VertexStar",
+                             "The molecules around a vertex, counterclockwise from the clean side.")
+      .def_ro("slots", &og::VertexStar::slots)
+      .def_ro("boundary", &og::VertexStar::boundary)
+      .def("defect", &og::VertexStar::defect);
+
+  nb::class_<og::MoleculeMesh>(m, "MoleculeMesh", "The molecule mesh of a disk (TVCG10 Sec. 3).")
+      .def_ro("molecules", &og::MoleculeMesh::molecules)
+      .def_ro("stars", &og::MoleculeMesh::stars)
+      .def_ro("edge_molecules", &og::MoleculeMesh::edge_molecules)
+      .def_ro("digon_molecules", &og::MoleculeMesh::digon_molecules)
+      .def_ro("faces", &og::MoleculeMesh::faces)
+      .def_prop_ro("boundary_molecules", &og::MoleculeMesh::boundary_molecules)
+      .def_prop_ro("polygons", &og::MoleculeMesh::polygons, "Faces, then digons.")
+      .def("__repr__", [](const og::MoleculeMesh& mesh) {
+        return "MoleculeMesh(" + std::to_string(mesh.molecules.size()) + " molecules, " +
+               std::to_string(mesh.stars.size()) + " vertices)";
+      });
+
+  m.def(
+      "build_molecule_mesh",
+      [](const og::SurfaceMesh& disk, bool boundary_digons) {
+        og::MoleculeOptions options;
+        options.boundary_digons = boundary_digons;
+        return og::build_molecule_mesh(disk, options);
+      },
+      "disk"_a, nb::kw_only(), "boundary_digons"_a = true,
+      "Build the molecule mesh of a disk, with the boundary digons of TVCG10 Sec. 5.1 by "
+      "default.");
+
+  // Mapping (M2) -------------------------------------------------------------
+
+  nb::enum_<og::RotationViolation::Kind>(m, "RotationViolationKind")
+      .value("T4", og::RotationViolation::Kind::kT4, "theta(i, o) >= pi at a boundary molecule")
+      .value("T6", og::RotationViolation::Kind::kT6, "|theta| <= pi - margin")
+      .value("T8", og::RotationViolation::Kind::kT8, "0 <= Theta <= pi - margin at a corner");
+
+  nb::class_<og::RotationViolation>(m, "RotationViolation",
+                                    "An inequality that the least-violation angles break.")
+      .def_ro("kind", &og::RotationViolation::kind)
+      .def_ro("molecule", &og::RotationViolation::molecule, "For T4 and T6.")
+      .def_ro("vertex", &og::RotationViolation::vertex, "For T8.")
+      .def_ro("slot", &og::RotationViolation::slot, "For T8: the slot whose corner it is.")
+      .def_ro("amount", &og::RotationViolation::amount, "In radians.");
+
+  nb::class_<og::RotationResult>(m, "RotationResult", "The angles of the rotation step.")
+      .def_ro("feasible", &og::RotationResult::feasible)
+      .def_ro("theta", &og::RotationResult::theta,
+              "One angle per molecule; when infeasible, the angles of least violation.")
+      .def_ro("violation", &og::RotationResult::violation,
+              "When infeasible: the least total violation of T4, T6, and T8 (radians).")
+      .def_ro("violations", &og::RotationResult::violations, "The broken inequalities.")
+      .def_ro("message", &og::RotationResult::message);
+
+  m.def(
+      "solve_rotation",
+      [](const og::MoleculeMesh& mesh, double angle_margin) {
+        og::RotationOptions options;
+        options.angle_margin = angle_margin;
+        return og::solve_rotation(mesh, options);
+      },
+      "mesh"_a, nb::kw_only(), "angle_margin"_a = og::RotationOptions{}.angle_margin,
+      "The rotation step (TVCG10 Sec. 6.2): the least-norm angles that satisfy T15, T4, T6, and "
+      "T8.");
+  m.def("exterior_angles", &og::exterior_angles, "mesh"_a, "theta"_a,
+        "TVCG10 Eq. 3: the exterior angle of every vertex-tucking molecule at each slot.");
+  m.def("mean_molecule_length", &og::mean_molecule_length, "mesh"_a);
+
+  nb::enum_<og::WidthObjective>(m, "WidthObjective", "Objectives of the translation step.")
+      .value("MINIMUM_WIDTH", og::WidthObjective::kMinimumWidth,
+             "A: minimize the total width, each width at least a minimum")
+      .value("PAPER_PENALTY", og::WidthObjective::kPaperPenalty,
+             "B: TVCG10's penalty, as a feasibility phase and a closest-widths phase");
+
+  nb::class_<og::TranslationResult>(m, "TranslationResult", "The widths of the translation step.")
+      .def_ro("feasible", &og::TranslationResult::feasible)
+      .def_ro("w", &og::TranslationResult::w,
+              "One width per molecule; phase 1's widths when objective B is infeasible.")
+      .def_ro("violation", &og::TranslationResult::violation,
+              "Objective B: the smallest total negative width.")
+      .def_ro("message", &og::TranslationResult::message);
+
+  m.def(
+      "solve_translation",
+      [](const og::MoleculeMesh& mesh, const std::vector<double>& theta,
+         og::WidthObjective objective, std::optional<double> minimum_width,
+         std::vector<double> reference) {
+        og::TranslationOptions options;
+        options.objective = objective;
+        if (minimum_width) options.minimum_width = *minimum_width;
+        options.reference = std::move(reference);
+        return og::solve_translation(mesh, theta, options);
+      },
+      "mesh"_a, "theta"_a, nb::kw_only(), "objective"_a = og::WidthObjective::kMinimumWidth,
+      "minimum_width"_a = nb::none(), "reference"_a = std::vector<double>{},
+      "The translation step (TVCG10 Sec. 6.3) for given angles. minimum_width defaults to 1% of "
+      "the mean molecule length; reference (objective B) to the minimum-norm solution of T17.");
+
+  nb::class_<og::Layout>(m, "Layout", "The faces and digons of the molecule mesh in the plane.")
+      .def_ro("vertices", &og::Layout::vertices,
+              "For each polygon, the disk vertices at its corners.")
+      .def_prop_ro(
+          "corners", [](const og::Layout& layout) { return to_xy(layout.corners); },
+          "For each polygon, its corners as [x, y] lists.")
+      .def_ro("closure_error", &og::Layout::closure_error);
+
+  m.def("reconstruct_layout", &og::reconstruct_layout, "disk"_a, "mesh"_a, "theta"_a, "w"_a,
+        "Place the polygons from the angles and widths and check that the molecule mesh closes.");
 }

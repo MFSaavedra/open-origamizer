@@ -74,6 +74,39 @@ TEST_CASE("without boundary digons, a vertex with fewer than three molecules is 
   REQUIRE_THAT(rotation.message, ContainsSubstring("need at least three"));
 }
 
+TEST_CASE("an infeasible rotation step reports its least violation") {
+  // One synthetic star, sectors alternating 3.0 and 0.05: T8 at the narrow
+  // corners needs theta_{m-1} + theta_m >= -0.1 for three disjoint pairs, so
+  // the sum of theta is at least -0.3, while T1 asks for 2 pi - 9.15. The
+  // least total violation is -(2 pi - 9.15) / 2 - 3 * 0.05.
+  origamizer::MoleculeMesh mesh;
+  mesh.faces = 6;
+  origamizer::VertexStar star;
+  for (std::size_t n = 0; n < 6; ++n) {
+    mesh.molecules.push_back({Molecule::Kind::kEdge, 0, n + 1, 1.0});
+    star.slots.push_back({n, 1, n % 2 == 0 ? 3.0 : 0.05, n});
+  }
+  mesh.stars.push_back(star);
+  mesh.edge_molecules = 6;
+  const auto rotation = origamizer::solve_rotation(mesh);
+  REQUIRE_FALSE(rotation.feasible);
+  REQUIRE(rotation.theta.size() == 6);
+  const double expected = -(2 * pi - 9.15) / 2 - 0.15;
+  REQUIRE(rotation.violation == Approx(expected).epsilon(1e-9));
+  REQUIRE_THAT(rotation.message, ContainsSubstring("least total violation"));
+  double sum = 0;
+  for (const auto& violation : rotation.violations) {
+    REQUIRE(violation.kind == origamizer::RotationViolation::Kind::kT8);
+    REQUIRE(violation.slot % 2 == 1);  // the narrow corners
+    sum += violation.amount;
+  }
+  REQUIRE(sum == Approx(rotation.violation));
+  // T15 still holds for the least-violation angles.
+  double total = 0;
+  for (const double t : rotation.theta) total += t;
+  REQUIRE(total == Approx(2 * pi - 9.15).margin(1e-12));
+}
+
 TEST_CASE("exterior angles of a star sum to 2 pi when T1 holds") {
   const auto mesh = molecules_of("octahedron");
   const auto rotation = origamizer::solve_rotation(mesh);
