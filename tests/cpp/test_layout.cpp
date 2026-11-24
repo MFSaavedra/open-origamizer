@@ -406,3 +406,38 @@ TEST_CASE("the overlap check flags crossed molecules") {
   REQUIRE_FALSE(report.valid);
   REQUIRE(report.smallest_area < 0);
 }
+
+TEST_CASE("crease conditions cover every side of every vertex-tucking molecule") {
+  for (const char* name : test::kExamples) {
+    INFO(name);
+    const auto mesh = origamizer::prepare_mesh(origamizer::read_obj(test::example_path(name))).mesh;
+    const auto mapping = origamizer::map_surface(mesh);  // objective A: no zero widths
+    const auto& molecules = mapping.molecules;
+    const auto conditions =
+        origamizer::crease_conditions(molecules, mapping.layout, mapping.theta, mapping.w);
+    std::size_t sides = 0;
+    for (const auto& star : molecules.stars) sides += star.slots.size();
+    REQUIRE(conditions.size() == sides);
+    for (const auto& c : conditions) {
+      REQUIRE(c.beta0 + c.beta1 + c.phi == Approx(pi).margin(1e-9));
+      REQUIRE(std::min({c.beta0, c.beta1, c.phi}) > 0);
+      const auto kind = molecules.molecules[molecules.stars[c.vertex].slots[c.slot].molecule].kind;
+      // T9 holds on every side shared with an edge-tucking molecule.
+      if (kind != Molecule::Kind::kBoundary) REQUIRE(c.t9);
+    }
+  }
+}
+
+TEST_CASE("T19 holds on the saddle and the cylinder") {
+  // Negative or zero curvature; on the convex examples T19 fails on some
+  // sides, which TVCG10's penalty term c1 E19 addresses (docs/notes.tex, M2).
+  for (const char* name : {"saddle", "cylinder"}) {
+    INFO(name);
+    const auto mesh = origamizer::prepare_mesh(origamizer::read_obj(test::example_path(name))).mesh;
+    const auto mapping = origamizer::map_surface(mesh);
+    for (const auto& c : origamizer::crease_conditions(mapping.molecules, mapping.layout,
+                                                       mapping.theta, mapping.w)) {
+      REQUIRE(c.t19);
+    }
+  }
+}

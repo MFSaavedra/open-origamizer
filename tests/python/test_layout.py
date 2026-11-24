@@ -128,3 +128,22 @@ def test_map_surface(name):
     assert report.valid and report.smallest_area > 0
     assert math.isclose(report.outline_turning, 2 * math.pi)
     assert len(mapping.layout.outline) == 2 * mapping.molecules.boundary_molecules
+
+
+def test_objective_b_layouts_pass_the_overlap_check():
+    # Objective B allows zero widths, so some molecules degenerate to points
+    # or segments; they cover nothing and must not count as overlaps.
+    for name in EXAMPLES:
+        mapping = og.map_surface(og.load_mesh(MESHES / f"{name}.obj").mesh,
+                                 objective=og.WidthObjective.PAPER_PENALTY)
+        assert mapping.feasible, name
+        report = og.check_overlap(mapping.molecules, mapping.layout)
+        assert report.valid, name
+
+
+def test_crease_conditions_bindings():
+    mapping = og.map_surface(og.load_mesh(MESHES / "octahedron.obj").mesh)
+    conditions = og.crease_conditions(mapping.molecules, mapping.layout, mapping.theta, mapping.w)
+    assert conditions
+    for c in conditions:
+        assert math.isclose(c.beta0 + c.beta1 + c.phi, math.pi, abs_tol=1e-9)

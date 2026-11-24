@@ -562,7 +562,54 @@ boundary molecule's side and by a digon. \texttt{map\_surface} reconstructs
 every feasible layout and requires the check to pass; it does on all seven
 examples, with every molecule of positive area under objective~A, while the
 cube with the rotation step's angles and phase~1's widths fails it with
-flipped molecules.
+flipped molecules. Objective~B allows zero widths, and then molecules
+degenerate to points or segments (on the open cylinder every width is zero:
+the strip needs no tucks). A degenerate cell covers nothing, so the check
+accepts cells whose area is within $10^{-9}\ell_{\mathrm{ave}}^2$ of zero and
+tests convexity only on the others; the first version tested every cell and
+misread the $\pm\pi$ turns of a segment as reflex corners.
+
+\subsection{Crease conditions T9 and T19: measurements}
+
+\texttt{crease\_conditions} evaluates T9 and T19 on the placed layout: for
+every side of positive length of every vertex-tucking molecule, it finds the
+Delaunay triangle of the molecule's corners on that side (CGAL) and compares
+its apex angle $\varphi$ with $\gamma + \pi/2$ (T9) and its base angles with
+$-\frac12\theta(v,j)$ (T19). On a boundary molecule's side there is no
+neighboring molecule; we require $\varphi \le \pi/2$ there, so that the
+Voronoi vertex stays on the paper. That is our extension, not a condition of
+TVCG10. Counts with objective~A, sides of boundary molecules in parentheses:
+
+\begin{center}
+\small
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+Example & sides & T9 fails & T19 fails \\
+\midrule
+tetrahedron & 20 (4) & 0 (4) & 1 \\
+cube & 36 (6) & 0 (6) & 4 \\
+octahedron & 32 (4) & 0 (4) & 10 \\
+saddle & 264 (24) & 0 (0) & 0 \\
+torus & 464 (40) & 0 (6) & 32 \\
+open cylinder & 100 (26) & 0 (0) & 0 \\
+L prism & 84 (22) & 0 (1) & 4 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+T9 holds on every side shared with an edge-tucking molecule (objective~B
+breaks it on two sides of the torus). On boundary sides it often fails: the
+Delaunay triangle on a boundary molecule's side is obtuse, so the Voronoi
+folding of TVCG10 Sec.~3.2 would put a crease vertex outside the paper. M3
+has to fold boundary vertex-tucking molecules differently, or the layout
+must keep those triangles acute; TVCG10 does not discuss it. T19 holds on
+the saddle and the cylinder and fails on some sides of every convex example.
+It is the condition under which edge splitting can satisfy T9 to T11
+(TVCG10 Sec.~7.2), and the paper keeps it with the term $c_1E_{(19)}$ of the
+translation step. Since the Delaunay triangles depend on the widths, that
+term needs an iterative scheme (sequential linearization of the base angles
+around the current widths is the natural candidate); it is the next step of
+M2, followed by edge splitting.
 
 \subsection{The Stanford bunny: the rotation step fails}
 

@@ -3,6 +3,8 @@
 
 #include "origamizer/layout.hpp"
 
+#include <CGAL/Delaunay_triangulation_2.h>
+
 #include <Eigen/Dense>
 #include <Eigen/OrderingMethods>
 #include <Eigen/SparseCholesky>
@@ -875,11 +877,16 @@ OverlapReport check_overlap(const MoleculeMesh& mesh, const Layout& layout) {
   OverlapReport report;
   report.smallest_area = std::numeric_limits<double>::infinity();
   double cells = 0;
+  const double negligible = 1e-9 * scale * scale;
   const auto molecule = [&](const std::vector<Point2>& polygon) {
     if (polygon.empty()) return;
     const double area = twice_area(polygon) / 2;
     report.smallest_area = std::min(report.smallest_area, area);
     cells += area;
+    if (std::abs(area) <= negligible) {  // a point or a segment: no direction to check
+      ++report.degenerate_molecules;
+      return;
+    }
     for (const double turn : turning_angles(polygon, tiny)) {
       report.reflex_turn = std::min(report.reflex_turn, turn);
     }
@@ -894,9 +901,78 @@ OverlapReport check_overlap(const MoleculeMesh& mesh, const Layout& layout) {
   const double outline_area = twice_area(layout.outline) / 2;
   report.area_mismatch = std::abs(cells - outline_area) / std::abs(outline_area);
   constexpr double kAngle = 1e-9;
-  report.valid = report.smallest_area >= -1e-9 * scale * scale && report.reflex_turn >= -kAngle &&
+  report.valid = report.smallest_area >= -negligible && report.reflex_turn >= -kAngle &&
                  std::abs(report.outline_turning - 2 * pi) <= 1e-6 && report.area_mismatch <= 1e-9;
   return report;
+}
+
+std::vector<SideCondition> crease_conditions(const MoleculeMesh& mesh, const Layout& layout,
+                                             const std::vector<double>& theta,
+                                             const std::vector<double>& w) {
+  ORIGAMIZER_CHECK(layout.vertex_molecules.size() == mesh.stars.size(),
+                   "the layout does not belong to this molecule mesh");
+  using Delaunay = CGAL::Delaunay_triangulation_2<Kernel>;
+  const double tiny = 1e-12 * mean_molecule_length(mesh);
+  const auto widening = width_excess(mesh, theta);
+  std::vector<SideCondition> conditions;
+  for (std::size_t v = 0; v < mesh.stars.size(); ++v) {
+    const auto& corners = layout.vertex_molecules[v];
+    const auto& slots = mesh.stars[v].slots;
+    Delaunay delaunay;
+    std::vector<Delaunay::Vertex_handle> handles;
+    for (const Point2& c : corners) handles.push_back(delaunay.insert(c));
+    if (delaunay.dimension() < 2) continue;  // degenerate: a point or a segment, no triangles
+    for (std::size_t n = 0; n < slots.size(); ++n) {
+      // Side n runs from the corner before slot n to the corner after it.
+      const Point2& a = corners[n];
+      const Point2& b = corners[(n + 1) % corners.size()];
+      if (CGAL::squared_distance(a, b) <= tiny * tiny) continue;
+      Delaunay::Face_handle face;
+      int index = 0;
+      const auto ha = handles[n];
+      const auto hb = handles[(n + 1) % corners.size()];
+      if (ha == hb || !delaunay.is_edge(ha, hb, face, index)) continue;  // merged corners
+      // A side of the convex molecule is a hull edge: one of its two faces is
+      // infinite, the other is its Delaunay triangle.
+      if (delaunay.is_infinite(face)) face = face->neighbor(index);
+      if (delaunay.is_infinite(face)) continue;  // all corners collinear
+      Point2 apex;
+      bool found = false;
+      for (int k = 0; k < 3 && !found; ++k) {
+        const auto h = face->vertex(k);
+        if (h != ha && h != hb && !delaunay.is_infinite(h)) {
+          apex = h->point();
+          found = true;
+        }
+      }
+      if (!found) continue;  // all corners collinear
+      const auto angle_at = [](const Point2& p, const Point2& q, const Point2& r) {
+        const Vector2 u = q - p, s = r - p;
+        return std::atan2(std::abs(u.x() * s.y() - u.y() * s.x()), u * s);
+      };
+      SideCondition c;
+      c.vertex = v;
+      c.slot = n;
+      c.beta0 = angle_at(a, b, apex);
+      c.beta1 = angle_at(b, apex, a);
+      c.phi = angle_at(apex, a, b);
+      const std::size_t molecule = slots[n].molecule;
+      const Molecule& m = mesh.molecules[molecule];
+      if (m.kind == Molecule::Kind::kBoundary) {
+        c.gamma = 0;
+        c.t9 = c.phi <= pi / 2 + 1e-9;
+      } else {
+        const double t = slots[n].sign * theta[molecule];  // theta(v, j)
+        const double here = w[molecule] + widening[v][n];
+        const double there = here + 2 * m.length * std::sin(t / 2);  // w(j, v)
+        c.gamma = std::atan2(2 * m.length * std::cos(t / 2), here + there);
+        c.t9 = c.phi <= c.gamma + pi / 2 + 1e-9;
+        c.t19 = std::min(c.beta0, c.beta1) >= -t / 2 - 1e-9;
+      }
+      conditions.push_back(c);
+    }
+  }
+  return conditions;
 }
 
 Mapping map_surface(const SurfaceMesh& mesh, const MappingOptions& options) {

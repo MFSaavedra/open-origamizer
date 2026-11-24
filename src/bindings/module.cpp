@@ -405,10 +405,23 @@ NB_MODULE(_core, m) {
   nb::class_<og::OverlapReport>(m, "OverlapReport",
                                 "Whether a layout is a crease pattern without overlap.")
       .def_ro("smallest_area", &og::OverlapReport::smallest_area)
+      .def_ro("degenerate_molecules", &og::OverlapReport::degenerate_molecules)
       .def_ro("reflex_turn", &og::OverlapReport::reflex_turn)
       .def_ro("outline_turning", &og::OverlapReport::outline_turning)
       .def_ro("area_mismatch", &og::OverlapReport::area_mismatch)
       .def_ro("valid", &og::OverlapReport::valid);
+  nb::class_<og::SideCondition>(m, "SideCondition",
+                                "T9 and T19 on one side of a vertex-tucking molecule.")
+      .def_ro("vertex", &og::SideCondition::vertex)
+      .def_ro("slot", &og::SideCondition::slot)
+      .def_ro("phi", &og::SideCondition::phi)
+      .def_ro("beta0", &og::SideCondition::beta0)
+      .def_ro("beta1", &og::SideCondition::beta1)
+      .def_ro("gamma", &og::SideCondition::gamma)
+      .def_ro("t9", &og::SideCondition::t9)
+      .def_ro("t19", &og::SideCondition::t19);
+  m.def("crease_conditions", &og::crease_conditions, "mesh"_a, "layout"_a, "theta"_a, "w"_a,
+        "T9 and T19 on every side of every vertex-tucking molecule (TVCG10 Sec. 4.2.2 and 7.2).");
   m.def("check_overlap", &og::check_overlap, "mesh"_a, "layout"_a,
         "Check that every molecule is convex with nonnegative area and the outline is convex "
         "(TVCG10 Sec. 4.2.1).");

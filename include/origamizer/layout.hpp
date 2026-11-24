@@ -200,14 +200,17 @@ struct Layout {
 /// Whether a layout is a crease pattern on convex paper without overlap
 /// (TVCG10 Sec. 4.2.1): with a convex outline, the molecule mesh cannot
 /// overlap unless a cell intersects itself or flips, so it is enough that
-/// every molecule is a convex polygon with nonnegative area. T4 to T8
-/// guarantee this; the check verifies it on the placed polygons.
+/// every molecule is a convex polygon with positive area or degenerate (zero
+/// area, as zero widths allow: a point or a segment, which covers nothing).
+/// T4 to T8 guarantee this; the check verifies it on the placed polygons.
 struct OverlapReport {
   /// The smallest signed area of an edge- or vertex-tucking molecule.
   double smallest_area = 0;
-  /// The most negative turning angle at a corner of a molecule or of the
-  /// outline (a reflex corner), or 0 if there is none. Corners on sides of
-  /// zero length are skipped.
+  /// Molecules of zero area (within 1e-9 of the squared mean edge length).
+  std::size_t degenerate_molecules = 0;
+  /// The most negative turning angle at a corner of a molecule of positive
+  /// area or of the outline (a reflex corner), or 0 if there is none.
+  /// Corners on sides of zero length are skipped.
   double reflex_turn = 0;
   /// The total turning of the outline: 2 pi for a simple convex outline.
   double outline_turning = 0;
@@ -219,6 +222,31 @@ struct OverlapReport {
 };
 
 OverlapReport check_overlap(const MoleculeMesh& mesh, const Layout& layout);
+
+/// The Delaunay triangle of a vertex-tucking molecule on one of its sides,
+/// and the 2D crease-pattern conditions on it (TVCG10 Sec. 4.2.2 and 7.2).
+struct SideCondition {
+  std::size_t vertex = 0;  ///< the side of VTM(vertex) at this slot
+  std::size_t slot = 0;
+  /// The angle of the Delaunay triangle opposite the side, and its base
+  /// angles at the side's ends (counterclockwise order).
+  double phi = 0;
+  double beta0 = 0;
+  double beta1 = 0;
+  /// T9's angle between the side and a diagonal of the edge-tucking
+  /// molecule; pi / 2 for a boundary molecule's side, whose Voronoi vertex
+  /// must not leave the paper.
+  double gamma = 0;
+  bool t9 = true;   ///< phi <= gamma + pi / 2: the Voronoi vertex stays in the molecule
+  bool t19 = true;  ///< min(beta0, beta1) >= -theta(v, j) / 2: the arc stays in the triangle
+};
+
+/// T9 and T19 on every side of positive length of every vertex-tucking
+/// molecule, from the Delaunay triangulation of its corners (CGAL). For a
+/// boundary molecule's side, T9 becomes phi <= pi / 2 and T19 does not apply.
+std::vector<SideCondition> crease_conditions(const MoleculeMesh& mesh, const Layout& layout,
+                                             const std::vector<double>& theta,
+                                             const std::vector<double>& w);
 
 /// Places the polygons from the angles and widths (TVCG10 Sec. 3 and 4.1):
 /// the first face at its own coordinates, then every polygon across an edge
